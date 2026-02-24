@@ -58,8 +58,7 @@ export default function Staff() {
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.position || '—'}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.building || '—'}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{s.hire_date || '—'}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{s.contract_days ? `${s.contract_days}-day` : '—'}</td>
+<td className="px-4 py-3 text-sm text-gray-600">{s.hire_date ? new Date(s.hire_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>                <td className="px-4 py-3 text-sm text-gray-600">{s.contract_days ? `${s.contract_days}-day` : '—'}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.supervisor?.full_name || '—'}</td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${s.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
