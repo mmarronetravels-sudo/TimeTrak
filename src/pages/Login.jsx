@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 
 const C = {
   navy: '#2c3e7e',
@@ -19,12 +20,28 @@ export default function Login() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const { error } = await signIn(email, password);
+    const { data, error } = await signIn(email, password);
     if (error) {
       setError(error.message);
       setLoading(false);
     } else {
-      navigate('/dashboard');
+      // Wait for session to be fully established before navigating
+      const checkProfile = async (attempts = 0) => {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', data.user.id)
+          .single();
+        if (prof) {
+          navigate('/dashboard');
+        } else if (attempts < 10) {
+          setTimeout(() => checkProfile(attempts + 1), 200);
+        } else {
+          setError('Profile not found. Please contact your administrator.');
+          setLoading(false);
+        }
+      };
+      checkProfile();
     }
   };
 
