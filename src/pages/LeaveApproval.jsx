@@ -34,13 +34,93 @@ export default function LeaveApproval() {
     setRequests(enriched);
   };
 
-  const handleAction = async (req, action) => {
+ const handleAction = async (req, action) => {
     await supabase.from('leave_requests').update({
       status: action,
       reviewed_by: profile.id,
       reviewed_by_name: profile.full_name,
       reviewed_at: new Date().toISOString(),
     }).eq('id', req.id);
+
+    // If approved, deduct from leave balance
+    if (action === 'approved') {
+      // Check if a balance record exists
+      const { data: existing } = await supabase
+        .from('leave_balances')
+        .select('*')
+        .eq('staff_id', req.staff_id)
+        .eq('leave_type_id', req.leave_type_id)
+        .eq('school_year', '2025-2026')
+        .single();
+
+      if (existing) {
+        // Update existing balance
+        await supabase.from('leave_balances').update({
+          used: existing.used + req.total_hours,
+        }).eq('id', existing.id);
+      } else {
+        // Check if this is a protected leave type (tracked in hours)
+        const lt = await supabase.from('leave_types').select('*').eq('id', req.leave_type_id).single();
+        const isProtected = lt.data?.category !== 'school_provided';
+
+        if (isProtected) {
+          // For protected leave, also create/update the rolling period
+          const staffProfile = await supabase.from('profiles').select('contract_days, tenant_id').eq('id', req.staff_id).single();
+          const contractDays = staffProfile.data?.contract_days || 260;
+          const entitlement = +((contractDays / 260) * 480).toFixed(2);
+
+          // Check for existing active period
+          const { data: period } = await supabase
+            .from('protected_leave_periods')
+            .select('*')
+            .eq('staff_id', req.staff_id)
+            .eq('leave_type_id', req.leave_type_id)
+            .eq('status', 'active')
+            .single();
+
+          if (period) {
+            await supabase.from('protected_leave_periods').update({
+              hours_used: period.hours_used + req.total_hours,
+              hours_remaining: period.hours_remaining - req.total_hours,
+            }).eq('id', period.id);
+          } else {
+            // Create new rolling 12-month period
+            const startDate = req.start_date;
+            const endDate = new Date(new Date(startDate).setFullYear(new Date(startDate).getFullYear() + 1) - 86400000).toISOString().split('T')[0];
+            await supabase.from('protected_leave_periods').insert({
+              tenant_id: profile.tenant_id,
+              staff_id: req.staff_id,
+              leave_type_id: req.leave_type_id,
+              period_start: startDate,
+              period_end: endDate,
+              contract_days: contractDays,
+              proration_pct: +((contractDays / 260) * 100).toFixed(2),
+              prorated_entitlement_hours: entitlement,
+              hours_used: req.total_hours,
+              hours_remaining: entitlement - req.total_hours,
+              status: 'active',
+            });
+          }
+        } else {
+          // Create balance with default allocation from policy
+          const { data: policy } = await supabase
+            .from('leave_policies')
+            .select('*')
+            .eq('leave_type_id', req.leave_type_id)
+            .eq('school_year', '2025-2026')
+            .single();
+
+          await supabase.from('leave_balances').insert({
+            tenant_id: profile.tenant_id,
+            staff_id: req.staff_id,
+            leave_type_id: req.leave_type_id,
+            school_year: '2025-2026',
+            allocated: policy?.allocated_amount || 0,
+            used: req.total_hours,
+          });
+        }
+      }
+    }
 
     // Notify staff member
     await supabase.from('notifications').insert({
