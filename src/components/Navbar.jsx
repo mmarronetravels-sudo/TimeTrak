@@ -32,12 +32,14 @@ export default function Navbar() {
   if (isSupervisor) {
     links.push({ to: '/review-timecards', label: 'Review Timecards', icon: '✅' });
     links.push({ to: '/leave-approval', label: 'Leave Approval', icon: '📋' });
+    links.push({ to: '/weekly-leave', label: 'Weekly Leave', icon: '📅' });
   }
 
   // HR gets these
   if (isHR) {
     links.push({ to: '/leave-tracker', label: 'Leave Tracker', icon: '👥' });
     links.push({ to: '/leave-entries', label: 'All Entries', icon: '📝' });
+    links.push({ to: '/weekly-leave', label: 'Weekly Leave', icon: '📅' });
     links.push({ to: '/hr-timecards', label: 'Timecard Review', icon: '⏱' });
     links.push({ to: '/supervisor-assignments', label: 'Assignments', icon: '🔗' });
     links.push({ to: '/compliance', label: 'Compliance', icon: '⚖️' });
