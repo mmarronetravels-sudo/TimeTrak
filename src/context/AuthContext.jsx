@@ -58,9 +58,9 @@ export function AuthProvider({ children }) {
     window.location.href = '/login';
   };
 
-  const isAdmin = profile?.role === 'admin';
-  const isHR = profile?.role === 'hr' || isAdmin;
-  const isSupervisor = profile?.role === 'supervisor' || isAdmin;
+  const isAdmin = profile?.timetrak_role === 'admin';
+  const isHR = profile?.timetrak_role === 'hr' || isAdmin;
+  const isSupervisor = profile?.timetrak_role === 'supervisor' || isAdmin;
   const isStaff = !!profile;
 
   return (
