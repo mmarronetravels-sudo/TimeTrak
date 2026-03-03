@@ -73,7 +73,7 @@ function LeaveChip({ code, hours, compact = false }) {
       {display.short}
       {hours != null && (
         <span style={{ fontWeight: 400, opacity: 0.8, fontSize: compact ? 9 : 10 }}>
-          {hours}h
+          {Math.round(hours * 100) / 100}h
         </span>
       )}
     </span>
@@ -729,7 +729,7 @@ function WeeklyLeaveView() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
                 { label: 'Staff Out Today', value: weekStats.staffOutToday, accent: '#f3843e' },
-                { label: 'Leave Hours This Week', value: weekStats.totalLeaveHours, accent: '#477fc1' },
+                { label: 'Leave Hours This Week', value: Math.round(weekStats.totalLeaveHours * 100) / 100, accent: '#477fc1' },
                 { label: 'Concurrent Leave Days', value: weekStats.concurrentDays, accent: '#0d9488' },
                 { label: 'Staff Tracked', value: weekStats.staffTracked, accent: '#2c3e7e' },
               ].map((card, i) => (
@@ -829,7 +829,7 @@ function WeeklyLeaveView() {
                             color: weekLeaveHours >= 40 ? '#dc2626' : weekLeaveHours > 0 ? '#2c3e7e' : '#cbd5e1',
                             fontSize: 13,
                           }}>
-                            {weekLeaveHours > 0 ? `${weekLeaveHours}h` : '—'}
+                {weekLeaveHours > 0 ? `${Math.round(weekLeaveHours * 100) / 100}h` : '—'}
                           </td>
                         </tr>
                       )
