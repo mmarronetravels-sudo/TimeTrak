@@ -27,10 +27,13 @@ export default function LeaveTracker() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [modalStaff, setModalStaff] = useState(null);
+  const [qualifyingReasons, setQualifyingReasons] = useState([]);
+  const [qualifyingRelationships, setQualifyingRelationships] = useState([]);
   const [form, setForm] = useState({
     staff_id: '', leave_type_id: '', start_date: '', end_date: '',
     amount: '', tracking_unit: 'hours', concurrent_leave_type_id: '',
     reason: '', documentation_on_file: false,
+    qualifying_reason: '', qualifying_relationship: '', relationship_name: '',
   });
   const [notification, setNotification] = useState(null);
 
@@ -45,23 +48,46 @@ export default function LeaveTracker() {
     if (lt) setLeaveTypes(lt);
     const { data: le } = await supabase.from('leave_entries').select('*, leave_types(name, code, category)').order('created_at', { ascending: false });
     if (le) setLeaveEntries(le);
+    const { data: qr } = await supabase.from('leave_qualifying_reasons').select('*').order('sort_order');
+    if (qr) setQualifyingReasons(qr);
+    const { data: qrel } = await supabase.from('leave_qualifying_relationships').select('*').order('sort_order');
+    if (qrel) setQualifyingRelationships(qrel);
   };
+
+  const resetForm = (staffId = '') => ({
+    staff_id: staffId, leave_type_id: '', start_date: '', end_date: '',
+    amount: '', tracking_unit: 'hours', concurrent_leave_type_id: '',
+    reason: '', documentation_on_file: false,
+    qualifying_reason: '', qualifying_relationship: '', relationship_name: '',
+  });
 
   const openEntryForStaff = (s) => {
     setModalStaff(s);
-    setForm({ staff_id: s.id, leave_type_id: '', start_date: '', end_date: '', amount: '', tracking_unit: 'hours', concurrent_leave_type_id: '', reason: '', documentation_on_file: false });
+    setForm(resetForm(s.id));
     setShowModal(true);
   };
 
   const openEntryBlank = () => {
     setModalStaff(null);
-    setForm({ staff_id: '', leave_type_id: '', start_date: '', end_date: '', amount: '', tracking_unit: 'hours', concurrent_leave_type_id: '', reason: '', documentation_on_file: false });
+    setForm(resetForm());
     setShowModal(true);
   };
 
+  // Determine if selected leave type is protected (FMLA/OFLA/PLO)
+  const selectedLeaveType = leaveTypes.find(t => t.id === form.leave_type_id);
+  const isProtectedLeave = selectedLeaveType && selectedLeaveType.category !== 'school_provided';
+  const leaveTypeCode = selectedLeaveType?.code || '';
+
+  // Filter qualifying reasons and relationships for the selected leave type
+  const filteredReasons = qualifyingReasons.filter(r => r.leave_type_code === leaveTypeCode);
+  const filteredRelationships = qualifyingRelationships.filter(r => r.leave_type_code === leaveTypeCode);
+
+  // Determine if "Self" is selected (hide family member name field)
+  const isSelfRelationship = form.qualifying_relationship === 'self';
+
   const submitEntry = async () => {
     if (!form.staff_id || !form.leave_type_id || !form.start_date || !form.amount) return;
-    const { error } = await supabase.from('leave_entries').insert({
+    const insertData = {
       tenant_id: profile.tenant_id,
       staff_id: form.staff_id,
       leave_type_id: form.leave_type_id,
@@ -74,7 +100,16 @@ export default function LeaveTracker() {
       documentation_on_file: form.documentation_on_file,
       logged_by: profile.id,
       school_year: '2025-2026',
-    });
+    };
+
+    // Include qualifying fields only for protected leave
+    if (isProtectedLeave) {
+      insertData.qualifying_reason = form.qualifying_reason || null;
+      insertData.qualifying_relationship = form.qualifying_relationship || null;
+      insertData.relationship_name = form.relationship_name || null;
+    }
+
+    const { error } = await supabase.from('leave_entries').insert(insertData);
     if (!error) {
       setShowModal(false);
       setModalStaff(null);
@@ -83,6 +118,18 @@ export default function LeaveTracker() {
       showNotif(`${lt?.name} entry logged for ${s?.full_name}`);
       loadData();
     }
+  };
+
+  // Helper to get display name for a qualifying reason enum value
+  const getReasonDisplayName = (reasonEnum) => {
+    const match = qualifyingReasons.find(r => r.qualifying_reason === reasonEnum);
+    return match?.display_name || reasonEnum?.replace(/_/g, ' ') || '';
+  };
+
+  // Helper to get display name for a qualifying relationship enum value
+  const getRelationshipDisplayName = (relEnum) => {
+    const match = qualifyingRelationships.find(r => r.qualifying_relationship === relEnum);
+    return match?.display_name || relEnum?.replace(/_/g, ' ') || '';
   };
 
   const filtered = staff.filter(s =>
@@ -180,7 +227,7 @@ export default function LeaveTracker() {
               {/* Leave Type */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Leave Type</label>
-                <select value={form.leave_type_id} onChange={e => { const lt = leaveTypes.find(t => t.id === e.target.value); setForm(p => ({ ...p, leave_type_id: e.target.value, tracking_unit: lt?.category !== 'school_provided' ? 'hours' : 'days', concurrent_leave_type_id: '' })); }} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]">
+                <select value={form.leave_type_id} onChange={e => { const lt = leaveTypes.find(t => t.id === e.target.value); setForm(p => ({ ...p, leave_type_id: e.target.value, tracking_unit: lt?.category !== 'school_provided' ? 'hours' : 'days', concurrent_leave_type_id: '', qualifying_reason: '', qualifying_relationship: '', relationship_name: '' })); }} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]">
                   <option value="">Select leave type...</option>
                   <optgroup label="School-Provided Leave">
                     {leaveTypes.filter(t => t.category === 'school_provided').map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -190,6 +237,71 @@ export default function LeaveTracker() {
                   </optgroup>
                 </select>
               </div>
+
+              {/* ═══ Qualifying Reason / Relationship Section (Protected Leave Only) ═══ */}
+              {isProtectedLeave && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-blue-700 text-sm font-bold">Qualifying Information</span>
+                    <span className="text-xs text-blue-500 font-medium px-2 py-0.5 bg-blue-100 rounded-full">
+                      {selectedLeaveType?.name}
+                    </span>
+                  </div>
+
+                  {/* Qualifying Reason */}
+                  <div>
+                    <label className="block text-sm font-semibold text-blue-800 mb-1">Qualifying Reason</label>
+                    <select
+                      value={form.qualifying_reason}
+                      onChange={e => setForm(p => ({ ...p, qualifying_reason: e.target.value }))}
+                      className="w-full border border-blue-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    >
+                      <option value="">Select reason...</option>
+                      {filteredReasons.map(r => (
+                        <option key={r.id} value={r.qualifying_reason}>{r.display_name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Qualifying Relationship */}
+                  <div>
+                    <label className="block text-sm font-semibold text-blue-800 mb-1">Relationship</label>
+                    <select
+                      value={form.qualifying_relationship}
+                      onChange={e => setForm(p => ({ ...p, qualifying_relationship: e.target.value, relationship_name: e.target.value === 'self' ? '' : p.relationship_name }))}
+                      className="w-full border border-blue-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    >
+                      <option value="">Select relationship...</option>
+                      {filteredRelationships.map(r => (
+                        <option key={r.id} value={r.qualifying_relationship}>{r.display_name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Family Member Name (hidden when "Self") */}
+                  {form.qualifying_relationship && !isSelfRelationship && (
+                    <div>
+                      <label className="block text-sm font-semibold text-blue-800 mb-1">
+                        Family Member Name <span className="font-normal text-blue-500">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={form.relationship_name}
+                        onChange={e => setForm(p => ({ ...p, relationship_name: e.target.value }))}
+                        placeholder="e.g. Maria Santos — Mother"
+                        className="w-full border border-blue-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      />
+                    </div>
+                  )}
+
+                  {/* Oregon affinity attestation note */}
+                  {form.qualifying_relationship === 'affinity' && (
+                    <div className="bg-blue-100 border border-blue-300 rounded-lg px-3 py-2 text-xs text-blue-700">
+                      <strong>Oregon "Person by Affinity":</strong> Under Oregon law, employees may designate one person with whom they have a significant personal bond as equivalent to a family member for OFLA/PLO purposes. No documentation of the relationship is required — the employee's attestation is sufficient.
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Concurrent Leave */}
               {form.leave_type_id && leaveTypes.find(t => t.id === form.leave_type_id)?.category !== 'school_provided' && (
