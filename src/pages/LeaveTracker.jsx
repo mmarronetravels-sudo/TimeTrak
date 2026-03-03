@@ -78,7 +78,7 @@ export default function LeaveTracker() {
       supabase.from('leave_entries').select('*, leave_types(name, code, category)').order('created_at', { ascending: false }),
       supabase.from('leave_balances').select('*').eq('school_year', schoolYear),
       supabase.from('leave_policies').select('*').eq('school_year', schoolYear),
-      supabase.from('protected_leave_periods').select('*').order('period_start_date', { ascending: false }),
+      supabase.from('protected_leave_periods').select('*').order('period_start', { ascending: false }),
       supabase.from('leave_qualifying_reasons').select('*').order('sort_order'),
       supabase.from('leave_qualifying_relationships').select('*').order('sort_order'),
     ]);
@@ -93,6 +93,8 @@ export default function LeaveTracker() {
   };
 
   // ── Protected Leave Period Helpers ──────────────────────
+  // TimeTrak schema uses: period_start, period_end, proration_pct, hours_remaining
+  // (different from StaffTrak which uses period_start_date, period_end_date, etc.)
 
   const getContractDays = (staffId) => {
     const s = staff.find(st => st.id === staffId);
@@ -105,14 +107,14 @@ export default function LeaveTracker() {
       p.staff_id === staffId &&
       p.leave_type_id === leaveTypeId &&
       p.status === 'active' &&
-      new Date(p.period_end_date) >= now
+      new Date(p.period_end) >= now
     ) || null;
   };
 
   const createProtectedPeriod = async (staffId, leaveTypeId, startDate) => {
     const contractDays = getContractDays(staffId);
-    const ratio = contractDays / FULL_TIME_DAYS;
-    const proratedHours = Math.round((ratio * BASE_ENTITLEMENT_HOURS) * 100) / 100;
+    const prorationPct = +(contractDays / FULL_TIME_DAYS).toFixed(4);
+    const proratedHours = +(prorationPct * BASE_ENTITLEMENT_HOURS).toFixed(2);
 
     const start = new Date(startDate);
     const end = new Date(start);
@@ -123,15 +125,14 @@ export default function LeaveTracker() {
       tenant_id: profile.tenant_id,
       staff_id: staffId,
       leave_type_id: leaveTypeId,
-      period_start_date: startDate,
-      period_end_date: end.toISOString().split('T')[0],
+      period_start: startDate,
+      period_end: end.toISOString().split('T')[0],
       contract_days: contractDays,
-      full_time_days: FULL_TIME_DAYS,
-      base_entitlement_hours: BASE_ENTITLEMENT_HOURS,
+      proration_pct: prorationPct,
       prorated_entitlement_hours: proratedHours,
       hours_used: 0,
+      hours_remaining: proratedHours,
       status: 'active',
-      created_by: profile.id,
     };
 
     const { data, error } = await supabase
@@ -154,11 +155,13 @@ export default function LeaveTracker() {
     const period = protectedPeriods.find(p => p.id === periodId);
     if (!period) return;
     const newHoursUsed = parseFloat(period.hours_used) + additionalHours;
-    const newStatus = newHoursUsed >= parseFloat(period.prorated_entitlement_hours) ? 'exhausted' : 'active';
+    const entitlement = parseFloat(period.prorated_entitlement_hours);
+    const newRemaining = Math.max(0, entitlement - newHoursUsed);
+    const newStatus = newHoursUsed >= entitlement ? 'exhausted' : 'active';
 
     const { data, error } = await supabase
       .from('protected_leave_periods')
-      .update({ hours_used: newHoursUsed, status: newStatus })
+      .update({ hours_used: newHoursUsed, hours_remaining: newRemaining, status: newStatus })
       .eq('id', periodId)
       .select();
 
@@ -171,11 +174,13 @@ export default function LeaveTracker() {
     const period = protectedPeriods.find(p => p.id === periodId);
     if (!period) return;
     const newHoursUsed = Math.max(0, parseFloat(period.hours_used) - hoursToReverse);
-    const newStatus = newHoursUsed >= parseFloat(period.prorated_entitlement_hours) ? 'exhausted' : 'active';
+    const entitlement = parseFloat(period.prorated_entitlement_hours);
+    const newRemaining = Math.max(0, entitlement - newHoursUsed);
+    const newStatus = newHoursUsed >= entitlement ? 'exhausted' : 'active';
 
     const { data, error } = await supabase
       .from('protected_leave_periods')
-      .update({ hours_used: newHoursUsed, status: newStatus })
+      .update({ hours_used: newHoursUsed, hours_remaining: newRemaining, status: newStatus })
       .eq('id', periodId)
       .select();
 
@@ -243,8 +248,8 @@ export default function LeaveTracker() {
         const proceed = confirm(
           `This entry (${hoursAmount.toFixed(2)} hrs) would exceed the remaining entitlement ` +
           `(${remaining.toFixed(2)} hrs of ${parseFloat(activePeriod.prorated_entitlement_hours).toFixed(2)} hrs).\n\n` +
-          `Period: ${new Date(activePeriod.period_start_date).toLocaleDateString()} – ` +
-          `${new Date(activePeriod.period_end_date).toLocaleDateString()}\n\nContinue anyway?`
+          `Period: ${new Date(activePeriod.period_start).toLocaleDateString()} – ` +
+          `${new Date(activePeriod.period_end).toLocaleDateString()}\n\nContinue anyway?`
         );
         if (!proceed) { setSaving(false); return; }
       }
@@ -354,8 +359,8 @@ export default function LeaveTracker() {
       const relevantPeriod = protectedPeriods.find(p =>
         p.staff_id === entry.staff_id &&
         p.leave_type_id === entry.leave_type_id &&
-        new Date(entry.start_date) >= new Date(p.period_start_date) &&
-        new Date(entry.start_date) <= new Date(p.period_end_date)
+        new Date(entry.start_date) >= new Date(p.period_start) &&
+        new Date(entry.start_date) <= new Date(p.period_end)
       );
       if (relevantPeriod) {
         await reversePeriodHours(relevantPeriod.id, hoursAmount);
@@ -394,8 +399,8 @@ export default function LeaveTracker() {
         const concurrentPeriod = protectedPeriods.find(p =>
           p.staff_id === entry.staff_id &&
           p.leave_type_id === entry.concurrent_leave_type_id &&
-          new Date(entry.start_date) >= new Date(p.period_start_date) &&
-          new Date(entry.start_date) <= new Date(p.period_end_date)
+          new Date(entry.start_date) >= new Date(p.period_start) &&
+          new Date(entry.start_date) <= new Date(p.period_end)
         );
         if (concurrentPeriod) {
           await reversePeriodHours(concurrentPeriod.id, hoursAmount);
@@ -569,7 +574,7 @@ export default function LeaveTracker() {
                     </div>
                     <p className="text-xs text-indigo-500 mt-0.5">
                       {used.toFixed(1)} used of {activePeriod ? parseFloat(activePeriod.prorated_entitlement_hours).toFixed(1) : ent.toFixed(1)} hrs
-                      {activePeriod && ` · Period: ${new Date(activePeriod.period_start_date + 'T00:00:00').toLocaleDateString()} – ${new Date(activePeriod.period_end_date + 'T00:00:00').toLocaleDateString()}`}
+                      {activePeriod && ` · Period: ${new Date(activePeriod.period_start + 'T00:00:00').toLocaleDateString()} – ${new Date(activePeriod.period_end + 'T00:00:00').toLocaleDateString()}`}
                       {!activePeriod && ' · New period will be created'}
                     </p>
                   </div>
@@ -669,7 +674,6 @@ export default function LeaveTracker() {
                 <div className="col-span-2">
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Amount</label>
                   <input type="number" step="0.5" value={form.amount} onChange={e => setForm(p => ({ ...p, amount: e.target.value }))} placeholder={form.tracking_unit === 'hours' ? 'e.g. 40' : 'e.g. 5'} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]" />
-                  {/* Live conversion hint */}
                   {form.amount && (
                     <p className="text-xs text-gray-400 mt-1">
                       = {form.tracking_unit === 'hours' ? `${(parseFloat(form.amount) / HOURS_PER_DAY).toFixed(1)} days` : form.tracking_unit === 'days' ? `${(parseFloat(form.amount) * HOURS_PER_DAY).toFixed(1)} hours` : `${(parseFloat(form.amount) * HOURS_PER_WEEK).toFixed(1)} hours`}
