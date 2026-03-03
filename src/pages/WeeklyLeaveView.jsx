@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import Navbar from '../components/Navbar'
 
 // ─── Leave type display config (keyed by leave_types.code) ──────────
 const LEAVE_DISPLAY = {
@@ -64,7 +63,7 @@ function getSchoolYear(date) {
 // ─── LeaveChip Component ────────────────────────────────────────────
 function LeaveChip({ code, hours, compact = false }) {
   const display = LEAVE_DISPLAY[code] || DEFAULT_DISPLAY
-  return (
+ 
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: compact ? 2 : 4,
       padding: compact ? '1px 6px' : '2px 8px', borderRadius: 4,
@@ -355,10 +354,8 @@ function WeeklyLeaveView() {
 
   // ─── Render ───────────────────────────────────────────────────
   if (loading) {
-    return (
-      <>
-        <Navbar />
-        <div style={{ minHeight: '100vh', background: '#f0f2f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+   
+             <div style={{ minHeight: '100vh', background: '#f0f2f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ textAlign: 'center', color: '#666' }}>
             <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Loading Weekly Leave View...</div>
             <div style={{ fontSize: 13 }}>Fetching staff and leave data</div>
@@ -369,9 +366,7 @@ function WeeklyLeaveView() {
   }
 
   return (
-    <>
-      <Navbar />
-      <div style={{ minHeight: '100vh', background: '#f0f2f5', fontFamily: "'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+        <div style={{ minHeight: '100vh', background: '#f0f2f5', fontFamily: "'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif" }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 20px' }}>
           {selectedStaff ? (
             <StaffCalendar
