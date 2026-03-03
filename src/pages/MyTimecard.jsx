@@ -201,7 +201,7 @@ export default function MyTimecard() {
       action: 'submitted',
       action_by: profile.id,
       action_by_name: profile.full_name,
-      action_by_role: profile.role,
+      action_by_role: profile.timetrak_role,
     });
     // Notify supervisor
     if (profile.supervisor_id) {
