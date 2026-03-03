@@ -87,7 +87,7 @@ export default function Navbar() {
           <div className="flex items-center gap-3">
             <div className="hidden sm:block text-right">
               <p className="text-white text-sm font-medium">{profile.full_name}</p>
-              <p className="text-blue-200 text-[10px] uppercase tracking-wide">{profile.role}</p>
+              <p className="text-blue-200 text-[10px] uppercase tracking-wide">{profile.timetrak_role}</p>
             </div>
             <button
               onClick={handleSignOut}
@@ -131,7 +131,7 @@ export default function Navbar() {
             </Link>
           ))}
           <div className="border-t border-white/10 pt-2 mt-2">
-            <p className="text-blue-200 text-xs px-3 mb-1">{profile.full_name} · {profile.role}</p>
+            <p className="text-blue-200 text-xs px-3 mb-1">{profile.full_name} · {profile.timetrak_role}</p>
             <button onClick={handleSignOut} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-blue-200 hover:text-white hover:bg-white/10">
               Sign Out
             </button>
