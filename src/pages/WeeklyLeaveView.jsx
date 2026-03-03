@@ -360,8 +360,7 @@ function WeeklyLeaveView() {
             <div style={{ fontSize: 13 }}>Fetching staff and leave data</div>
           </div>
         </div>
-      </>
-    )
+       )
   }
 
   return (
