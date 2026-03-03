@@ -76,7 +76,7 @@ export default function HRTimecards() {
       action: 'verified',
       action_by: profile.id,
       action_by_name: profile.full_name,
-      action_by_role: profile.role,
+      action_by_role: profile.timetrak_role,
     });
     // Notify staff
     await supabase.from('notifications').insert({
@@ -99,7 +99,7 @@ export default function HRTimecards() {
       action: 'returned',
       action_by: profile.id,
       action_by_name: profile.full_name,
-      action_by_role: profile.role,
+      action_by_role: profile.timetrak_role,
       note: returnNote,
     });
     await supabase.from('notifications').insert({
