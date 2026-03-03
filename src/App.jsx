@@ -16,6 +16,7 @@ import HRTimecards from './pages/HRTimecards';
 import SupervisorAssignments from './pages/SupervisorAssignments';
 import Compliance from './pages/Compliance';
 import Staff from './pages/Staff';
+import WeeklyLeaveView from './pages/WeeklyLeaveView'
 
 function Layout({ children }) {
   return (
@@ -48,7 +49,7 @@ export default function App() {
           <Route path="/hr-timecards" element={<ProtectedRoute roles={['hr', 'admin']}><Layout><HRTimecards /></Layout></ProtectedRoute>} />
           <Route path="/supervisor-assignments" element={<ProtectedRoute roles={['hr', 'admin']}><Layout><SupervisorAssignments /></Layout></ProtectedRoute>} />
           <Route path="/compliance" element={<ProtectedRoute roles={['hr', 'admin']}><Layout><Compliance /></Layout></ProtectedRoute>} />
-
+          <Route path="/weekly-leave" element={<ProtectedRoute roles={['hr', 'admin', 'supervisor']}><Layout><WeeklyLeaveView /></Layout></ProtectedRoute>} />
           <Route path="/staff" element={<ProtectedRoute roles={['admin']}><Layout><Staff /></Layout></ProtectedRoute>} />
         </Routes>
       </AuthProvider>
