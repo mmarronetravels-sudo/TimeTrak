@@ -82,10 +82,10 @@ export default function ReviewTimecards() {
       action: 'approved',
       action_by: profile.id,
       action_by_name: profile.full_name,
-      action_by_role: profile.role,
+      action_by_role: profile.timetrak_role,
     });
     // Notify HR
-    const { data: hrUsers } = await supabase.from('profiles').select('id').in('role', ['hr', 'admin']);
+    const { data: hrUsers } = await supabase.from('profiles').select('id').in('timetrak_role', ['hr', 'admin']);
     for (const hr of (hrUsers || [])) {
       await supabase.from('notifications').insert({
         tenant_id: profile.tenant_id,
@@ -108,7 +108,7 @@ export default function ReviewTimecards() {
       action: 'returned',
       action_by: profile.id,
       action_by_name: profile.full_name,
-      action_by_role: profile.role,
+      action_by_role: profile.timetrak_role,
       note: returnNote,
     });
     // Notify staff
