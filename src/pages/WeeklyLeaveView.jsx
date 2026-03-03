@@ -63,9 +63,7 @@ function getSchoolYear(date) {
 // ─── LeaveChip Component ────────────────────────────────────────────
 function LeaveChip({ code, hours, compact = false }) {
   const display = LEAVE_DISPLAY[code] || DEFAULT_DISPLAY
-    return (
-    <span style={{
- 
+  return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: compact ? 2 : 4,
       padding: compact ? '1px 6px' : '2px 8px', borderRadius: 4,
@@ -82,7 +80,6 @@ function LeaveChip({ code, hours, compact = false }) {
     </span>
   )
 }
-
 // ─── Main Component ─────────────────────────────────────────────────
 function WeeklyLeaveView() {
   const { profile } = useAuth()
