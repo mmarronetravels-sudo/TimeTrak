@@ -63,6 +63,8 @@ function getSchoolYear(date) {
 // ─── LeaveChip Component ────────────────────────────────────────────
 function LeaveChip({ code, hours, compact = false }) {
   const display = LEAVE_DISPLAY[code] || DEFAULT_DISPLAY
+    return (
+    <span style={{
  
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: compact ? 2 : 4,
