@@ -51,10 +51,11 @@ export function AuthProvider({ children }) {
     return supabase.auth.signInWithPassword({ email, password });
   };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+ const signOut = async () => {
     setUser(null);
     setProfile(null);
+    await supabase.auth.signOut();
+    window.location.href = '/login';
   };
 
   const isAdmin = profile?.role === 'admin';
