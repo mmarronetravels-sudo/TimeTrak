@@ -429,7 +429,7 @@ function WeeklyLeaveView() {
         .eq('is_active', true)
         .order('full_name')
 
-      if (profile.role === 'supervisor') {
+      if (profile.timetrak_role === 'supervisor') {
         staffQuery.eq('supervisor_id', profile.id)
       }
 
@@ -583,7 +583,7 @@ function WeeklyLeaveView() {
   }, [timecardLeave, leaveEntries, leaveRequests, typeIdToCode])
 
   const filteredStaff = useMemo(() => {
-    let s = staff.filter(p => p.role === 'staff' || p.role === 'supervisor')
+    let s = staff.filter(p => p.timetrak_role === 'staff' || p.timetrak_role === 'supervisor')
     if (filterBuilding && filterBuilding !== 'all') {
       s = s.filter(p => p.building === filterBuilding)
     }
@@ -661,7 +661,7 @@ function WeeklyLeaveView() {
               <div>
                 <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#2c3e7e' }}>Weekly Leave View</h1>
                 <p style={{ margin: '2px 0 0', fontSize: 13, color: '#666' }}>
-                  {profile.role === 'supervisor' ? 'Your assigned staff' : 'All staff'} — Click any row to view their calendar and balances
+                  {profile.timetrak_role === 'supervisor' ? 'Your assigned staff' : 'All staff'} — Click any row to view their calendar and balances
                 </p>
               </div>
             </div>
