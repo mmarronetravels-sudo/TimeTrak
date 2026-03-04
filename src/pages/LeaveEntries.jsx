@@ -21,14 +21,15 @@ export default function LeaveEntries() {
     .from('leave_entries')
     .select('*')
     .order('created_at', { ascending: false });
-  
+
   if (data) {
-    // Fetch staff names separately
     const staffIds = [...new Set(data.map(e => e.staff_id))];
+    console.log('staffIds:', staffIds);
     const { data: staffData } = await supabase
       .from('profiles')
       .select('id, full_name, position')
       .in('id', staffIds);
+    console.log('staffData:', staffData);
     
     const staffMap = {};
     if (staffData) staffData.forEach(s => { staffMap[s.id] = s; });
@@ -36,7 +37,6 @@ export default function LeaveEntries() {
     setEntries(data.map(e => ({ ...e, staff: staffMap[e.staff_id] || null })));
   }
 };
-
   const filtered = entries.filter(e => {
     if (filterType !== 'all' && e.leave_type_id !== filterType) return false;
     if (searchTerm && !e.profiles?.full_name?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
