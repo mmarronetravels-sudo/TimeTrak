@@ -77,7 +77,7 @@ export default function Dashboard() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: C.navy }}>Welcome, {profile?.full_name}</h1>
 <p className="text-sm text-gray-500 mt-0.5">
-  {profile?.position} · {profile?.building} · {profile?.role}
+  {profile?.position} · {profile?.building} · {profile?.timetrak_role}
   {profile?.hire_date && <> · Hired {new Date(profile.hire_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>}
   {profile?.contract_days && <> · {profile.contract_days}-day contract</>}
 </p>      
