@@ -10,40 +10,58 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set up auth state listener FIRST — always
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null);
+    const init = async () => {
+      // Check for token handoff from product switcher
+      const params = new URLSearchParams(window.location.search);
+      const accessToken = params.get('token');
+      const refreshToken = params.get('refresh');
+
+      if (accessToken && refreshToken) {
+        window.history.replaceState({}, '', window.location.pathname);
+        const { data, error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken
+        });
+        if (data?.session?.user) {
+          setUser(data.session.user);
+          await fetchProfile(data.session.user.id);
+          return;
+        }
+        // setSession failed, try refreshSession
+        const { data: refreshData } = await supabase.auth.refreshSession({
+          refresh_token: refreshToken
+        });
+        if (refreshData?.session?.user) {
+          setUser(refreshData.session.user);
+          await fetchProfile(refreshData.session.user.id);
+          return;
+        }
+        // Both failed, go to login
+        console.error('Token handoff failed:', error);
+        window.location.href = '/login';
+        return;
+      }
+
+      // Normal session init
+      const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
+        setUser(session.user);
         await fetchProfile(session.user.id);
       } else {
+        setLoading(false);
+      }
+    };
+
+    init();
+
+    // Auth state listener for sign out only
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (_event === 'SIGNED_OUT') {
+        setUser(null);
         setProfile(null);
         setLoading(false);
       }
     });
-
-    // Check for token handoff from product switcher
-    const params = new URLSearchParams(window.location.search);
-    const accessToken = params.get('token');
-    const refreshToken = params.get('refresh');
-
-    if (accessToken && refreshToken) {
-      // Clean the tokens from the URL immediately
-      window.history.replaceState({}, '', window.location.pathname);
-      // setSession will trigger onAuthStateChange above
-      supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken
-      }).catch(err => {
-        console.error('Token handoff failed:', err);
-        setLoading(false);
-      });
-    } else {
-      // Normal session init
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (!session) setLoading(false);
-        // if session exists, onAuthStateChange will handle it
-      });
-    }
 
     return () => subscription.unsubscribe();
   }, []);
