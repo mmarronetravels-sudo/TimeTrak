@@ -15,20 +15,24 @@ export function AuthProvider({ children }) {
     const accessToken = params.get('token');
     const refreshToken = params.get('refresh');
 
-    if (accessToken && refreshToken) {
+   if (accessToken && refreshToken) {
+  console.log('Token handoff detected');
+  console.log('Access token:', accessToken.substring(0, 20) + '...');
   window.history.replaceState({}, '', window.location.pathname);
   supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
     .then(async ({ data: { session }, error }) => {
+      console.log('setSession result:', session?.user?.email, 'error:', error);
       if (session?.user) {
         setUser(session.user);
         fetchProfile(session.user.id);
       } else {
-        const { data: { session: refreshed } } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+        console.log('Trying refreshSession...');
+        const { data: { session: refreshed }, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+        console.log('refreshSession result:', refreshed?.user?.email, 'error:', refreshError);
         if (refreshed?.user) {
           setUser(refreshed.user);
           fetchProfile(refreshed.user.id);
         } else {
-          console.error('Token handoff failed:', error);
           window.location.href = '/login';
         }
       }
