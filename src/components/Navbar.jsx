@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -13,8 +13,12 @@ export default function Navbar() {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  if (!profile) return null;
+  // ── Close mobile menu on any route change or re-render trigger ──
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
 
+  if (!profile) return null;
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
