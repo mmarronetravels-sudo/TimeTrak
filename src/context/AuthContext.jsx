@@ -84,8 +84,13 @@ export function AuthProvider({ children }) {
   };
 
   const signIn = async (email, password) => {
-    return supabase.auth.signInWithPassword({ email, password });
-  };
+  const result = await supabase.auth.signInWithPassword({ email, password });
+  if (result.data?.session?.user) {
+    setUser(result.data.session.user);
+    await fetchProfile(result.data.session.user.id);
+  }
+  return result;
+};
 
   const signOut = async () => {
     setUser(null);
