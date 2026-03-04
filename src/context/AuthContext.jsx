@@ -16,21 +16,34 @@ export function AuthProvider({ children }) {
     const refreshToken = params.get('refresh');
 
     if (accessToken && refreshToken) {
-      // Clean the tokens from the URL immediately
-      window.history.replaceState({}, '', window.location.pathname);
-      // Set the session using the passed tokens
-      supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
-        .then(({ data: { session }, error }) => {
-          if (session?.user) {
-            setUser(session.user);
-            fetchProfile(session.user.id);
-          } else {
-            console.error('Token handoff failed:', error);
-            setLoading(false);
-          }
-        });
-      return; // Skip normal getSession flow
+  window.history.replaceState({}, '', window.location.pathname);
+  supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+    .then(async ({ data: { session }, error }) => {
+      if (session?.user) {
+        setUser(session.user);
+        fetchProfile(session.user.id);
+      } else {
+        const { data: { session: refreshed } } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+        if (refreshed?.user) {
+          setUser(refreshed.user);
+          fetchProfile(refreshed.user.id);
+        } else {
+          console.error('Token handoff failed:', error);
+          window.location.href = '/login';
+        }
+      }
+    });
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    setUser(session?.user ?? null);
+    if (session?.user) {
+      await fetchProfile(session.user.id);
+    } else {
+      setProfile(null);
+      setLoading(false);
     }
+  });
+  return () => subscription.unsubscribe();
+}
 
     // Normal session init
     supabase.auth.getSession().then(({ data: { session } }) => {
