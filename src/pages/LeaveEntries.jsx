@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import Navbar from '../components/Navbar'
 
 const HOURS_PER_DAY = 8
 const HOURS_PER_WEEK = 40
@@ -259,8 +258,7 @@ export default function LeaveEntries() {
   // ── Render ──
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navbar />
-
+   
       {/* Toast */}
       {notification && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium max-w-sm ${
