@@ -9,7 +9,22 @@ export default function ResetPassword() {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [ready, setReady] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Listen for the PASSWORD_RECOVERY event which fires when the token is exchanged
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setReady(true);
+      }
+    });
+    // Also check if we already have a session (token already exchanged)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setReady(true);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleReset = async (e) => {
     e.preventDefault();
@@ -17,7 +32,8 @@ export default function ResetPassword() {
     const { error } = await supabase.auth.updateUser({ password });
     if (error) { setError(error.message); return; }
     setSuccess(true);
-    setTimeout(() => navigate('/dashboard'), 2000);
+    await supabase.auth.signOut();
+    setTimeout(() => navigate('/login'), 2000);
   };
 
   return (
@@ -25,7 +41,9 @@ export default function ResetPassword() {
       <div className="w-full max-w-md bg-white rounded-xl shadow-sm border border-gray-100 p-8">
         <h2 className="text-xl font-bold mb-6" style={{ color: C.navy }}>Set New Password</h2>
         {success ? (
-          <p className="text-green-600 font-medium">Password updated! Redirecting...</p>
+          <p className="text-green-600 font-medium">Password updated! Redirecting to login...</p>
+        ) : !ready ? (
+          <p className="text-gray-500 text-sm">Verifying reset link...</p>
         ) : (
           <form onSubmit={handleReset} className="space-y-4">
             {error && <p className="text-red-600 text-sm">{error}</p>}
