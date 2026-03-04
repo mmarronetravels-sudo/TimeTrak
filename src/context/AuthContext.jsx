@@ -2,7 +2,6 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext({});
-
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }) {
@@ -11,6 +10,29 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Check for token handoff from product switcher
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('token');
+    const refreshToken = params.get('refresh');
+
+    if (accessToken && refreshToken) {
+      // Clean the tokens from the URL immediately
+      window.history.replaceState({}, '', window.location.pathname);
+      // Set the session using the passed tokens
+      supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ data: { session }, error }) => {
+          if (session?.user) {
+            setUser(session.user);
+            fetchProfile(session.user.id);
+          } else {
+            console.error('Token handoff failed:', error);
+            setLoading(false);
+          }
+        });
+      return; // Skip normal getSession flow
+    }
+
+    // Normal session init
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
@@ -51,7 +73,7 @@ export function AuthProvider({ children }) {
     return supabase.auth.signInWithPassword({ email, password });
   };
 
- const signOut = async () => {
+  const signOut = async () => {
     setUser(null);
     setProfile(null);
     await supabase.auth.signOut();
