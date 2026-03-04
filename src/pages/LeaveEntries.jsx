@@ -18,7 +18,7 @@ export default function LeaveEntries() {
     if (lt) setLeaveTypes(lt);
     const { data } = await supabase
       .from('leave_entries')
-      .select('*, leave_types(name, code, category), profiles(full_name, position)')
+      .select('*, leave_types(name, code, category), staff:profiles!leave_entries_staff_id_fkey(full_name, position)')
       .order('created_at', { ascending: false });
     if (data) setEntries(data);
   };
@@ -66,8 +66,8 @@ export default function LeaveEntries() {
             {filtered.map(entry => (
               <tr key={entry.id} className="hover:bg-gray-50/50 transition-colors">
                 <td className="px-4 py-3">
-                  <p className="text-sm font-semibold text-gray-800">{entry.profiles?.full_name}</p>
-                  <p className="text-xs text-gray-500">{entry.profiles?.position}</p>
+                  <p className="text-sm font-semibold text-gray-800">{entry.staff?.full_name}</p>
+                  <p className="text-xs text-gray-500">{entry.staff?.position}</p>
                 </td>
                 <td className="px-4 py-3">
                   <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">{entry.leave_types?.name}</span>
