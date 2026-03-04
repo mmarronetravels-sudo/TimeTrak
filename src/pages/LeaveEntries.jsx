@@ -18,7 +18,7 @@ export default function LeaveEntries() {
     if (lt) setLeaveTypes(lt);
     const { data } = await supabase
       .from('leave_entries')
-      .select('*, leave_types(name, code, category), profiles!leave_entries_staff_id_fkey(full_name, position)')
+      .select('*, leave_types(name, code, category), profiles(full_name, position)')
       .order('created_at', { ascending: false });
     if (data) setEntries(data);
   };
