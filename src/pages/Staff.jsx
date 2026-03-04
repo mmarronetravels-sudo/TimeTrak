@@ -50,11 +50,11 @@ export default function Staff() {
                 <td className="px-4 py-3 text-sm text-gray-600">{s.email}</td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                    s.role === 'admin' ? 'bg-purple-100 text-purple-700' :
-                    s.role === 'hr' ? 'bg-blue-100 text-blue-700' :
-                    s.role === 'supervisor' ? 'bg-indigo-100 text-indigo-700' :
-                    'bg-gray-100 text-gray-600'
-                  }`}>{s.role}</span>
+                    s.timetrak_role === 'admin' ? 'bg-purple-100 text-purple-700' :
+s.timetrak_role === 'hr' ? 'bg-blue-100 text-blue-700' :
+s.timetrak_role === 'supervisor' ? 'bg-indigo-100 text-indigo-700' :
+'bg-gray-100 text-gray-600'
+}`}>{s.timetrak_role}</span>
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.position || '—'}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.building || '—'}</td>
