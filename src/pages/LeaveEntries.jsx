@@ -26,9 +26,10 @@ export default function LeaveEntries() {
     const staffIds = [...new Set(data.map(e => e.staff_id))];
     console.log('staffIds:', staffIds);
     const { data: staffData } = await supabase
-      .from('profiles')
-      .select('id, full_name, position')
-      .in('id', staffIds);
+  .from('profiles')
+  .select('id, full_name, position')
+  .in('id', staffIds)
+  .limit(100);
     console.log('staffData:', staffData);
     
     const staffMap = {};
