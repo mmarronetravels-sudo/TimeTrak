@@ -10,53 +10,8 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for token handoff from product switcher
-    const params = new URLSearchParams(window.location.search);
-    const accessToken = params.get('token');
-    const refreshToken = params.get('refresh');
-
-   if (accessToken && refreshToken) {
-  console.log('Token handoff detected');
-  console.log('Access token:', accessToken.substring(0, 20) + '...');
-  window.history.replaceState({}, '', window.location.pathname);
-  supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
-    .then(async ({ data: { session }, error }) => {
-      console.log('setSession result:', session?.user?.email, 'error:', error);
-      if (session?.user) {
-        setUser(session.user);
-        fetchProfile(session.user.id);
-      } else {
-        console.log('Trying refreshSession...');
-        const { data: { session: refreshed }, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-        console.log('refreshSession result:', refreshed?.user?.email, 'error:', refreshError);
-        if (refreshed?.user) {
-          setUser(refreshed.user);
-          fetchProfile(refreshed.user.id);
-        } else {
-          window.location.href = '/login';
-        }
-      }
-    });
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-    setUser(session?.user ?? null);
-    if (session?.user) {
-      await fetchProfile(session.user.id);
-    } else {
-      setProfile(null);
-      setLoading(false);
-    }
-  });
-  return () => subscription.unsubscribe();
-}
-
-    // Normal session init
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      else setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // Set up auth state listener FIRST — always
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
         await fetchProfile(session.user.id);
@@ -66,12 +21,36 @@ export function AuthProvider({ children }) {
       }
     });
 
+    // Check for token handoff from product switcher
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('token');
+    const refreshToken = params.get('refresh');
+
+    if (accessToken && refreshToken) {
+      // Clean the tokens from the URL immediately
+      window.history.replaceState({}, '', window.location.pathname);
+      // setSession will trigger onAuthStateChange above
+      supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken
+      }).catch(err => {
+        console.error('Token handoff failed:', err);
+        setLoading(false);
+      });
+    } else {
+      // Normal session init
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session) setLoading(false);
+        // if session exists, onAuthStateChange will handle it
+      });
+    }
+
     return () => subscription.unsubscribe();
   }, []);
 
   const fetchProfile = async (userId, retries = 3) => {
     for (let i = 0; i < retries; i++) {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
