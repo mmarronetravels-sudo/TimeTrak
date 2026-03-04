@@ -83,8 +83,17 @@ export default function Navbar() {
             ))}
           </div>
 
-          {/* Right side: user info + sign out + mobile menu */}
+          {/* Right side: product switcher + user info + sign out + mobile menu */}
           <div className="flex items-center gap-3">
+            {/* Product Switcher */}
+            <a
+              href="https://stafftrak.scholarpathsystems.org"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white border border-white/30 hover:bg-white/10 transition-colors"
+              title="Switch to StaffTrak"
+            >
+              <span>StaffTrak</span>
+              <span>→</span>
+            </a>
             <div className="hidden sm:block text-right">
               <p className="text-white text-sm font-medium">{profile.full_name}</p>
               <p className="text-blue-200 text-[10px] uppercase tracking-wide">{profile.timetrak_role}</p>
@@ -132,6 +141,12 @@ export default function Navbar() {
           ))}
           <div className="border-t border-white/10 pt-2 mt-2">
             <p className="text-blue-200 text-xs px-3 mb-1">{profile.full_name} · {profile.timetrak_role}</p>
+            <a
+              href="https://stafftrak.scholarpathsystems.org"
+              className="block px-3 py-2 rounded-md text-sm font-semibold text-[#f3843e] hover:text-white hover:bg-white/10 transition-all"
+            >
+              Switch to StaffTrak →
+            </a>
             <button onClick={handleSignOut} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-blue-200 hover:text-white hover:bg-white/10">
               Sign Out
             </button>
