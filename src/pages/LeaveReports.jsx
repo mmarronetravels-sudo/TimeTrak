@@ -218,12 +218,13 @@ export default function LeaveReports() {
       if (PROTECTED_CODES.includes(lt.code?.toLowerCase())) {
         return parseFloat((480 * prorationPct).toFixed(2))
       }
+      const unit = lt.tracking_unit || 'days'
       // Check personal balance record first
       const bal = personBalances.find(b => b.leave_type_id === lt.id)
-      if (bal) return parseFloat(bal.allocated) + parseFloat(bal.carried_over || 0)
+      if (bal) return toHours(parseFloat(bal.allocated) + parseFloat(bal.carried_over || 0), unit)
       // Fall back to policy
       const pol = leavePolicies.find(p => p.leave_type_id === lt.id)
-      if (pol) return parseFloat(pol.allocated_amount)
+      if (pol) return toHours(parseFloat(pol.allocated_amount), unit)
       return null
     }
 
@@ -244,11 +245,10 @@ export default function LeaveReports() {
           }, 0)
         if (hrs > 0) hoursUsedByType[lt.id] = hrs
       } else {
-        // Use balance record
+        // Use balance record — convert to hours using leave_type's tracking_unit
         const bal = personBalances.find(b => b.leave_type_id === lt.id)
         if (bal && parseFloat(bal.used) > 0) {
-          // Convert balance unit to hours
-          const unit = bal.tracking_unit || lt.tracking_unit || 'hours'
+          const unit = lt.tracking_unit || 'days'
           hoursUsedByType[lt.id] = toHours(parseFloat(bal.used), unit)
         }
       }
