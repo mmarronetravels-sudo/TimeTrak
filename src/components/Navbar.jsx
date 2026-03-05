@@ -1,58 +1,79 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 
 const C = {
-  navy: '#2c3e7e',
+  navy:   '#2c3e7e',
   orange: '#f3843e',
 };
 
 export default function Navbar() {
   const { profile, signOut, isAdmin, isHR, isSupervisor } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
+  const location  = useLocation();
+  const navigate  = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // ── Close mobile menu on any route change or re-render trigger ──
+  // Close mobile menu on route change
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
 
   if (!profile) return null;
+
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
   };
 
-  const links = [];
+  const handleSwitchToStaffTrak = async (e) => {
+    e.preventDefault();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      const url = `https://stafftrak.scholarpathsystems.org/dashboard?token=${session.access_token}&refresh=${session.refresh_token}`;
+      window.location.href = url;
+    } else {
+      window.location.href = 'https://stafftrak.scholarpathsystems.org';
+    }
+  };
 
-  // Everyone gets these
-  links.push({ to: '/dashboard', label: 'Dashboard', icon: '📊' });
-  links.push({ to: '/my-timecard', label: 'My Timecard', icon: '⏱' });
-  links.push({ to: '/my-leave', label: 'Leave Requests', icon: '📋' });
-  links.push({ to: '/my-balances', label: 'Leave Balances', icon: '📊' });
+  // Build nav links without duplicates.
+  // Use a Map keyed by path so each route appears exactly once.
+  const linkMap = new Map();
 
-  // Supervisor gets these
+  const add = (to, label, icon) => {
+    if (!linkMap.has(to)) linkMap.set(to, { to, label, icon });
+  };
+
+  // Everyone
+  add('/dashboard',  'Dashboard',      '📊');
+  add('/my-timecard','My Timecard',    '⏱');
+  add('/my-leave',   'Leave Requests', '📋');
+  add('/my-balances','Leave Balances', '📊');
+
+  // Supervisor
   if (isSupervisor) {
-    links.push({ to: '/review-timecards', label: 'Review Timecards', icon: '✅' });
-    links.push({ to: '/leave-approval', label: 'Leave Approval', icon: '📋' });
-    links.push({ to: '/weekly-leave', label: 'Weekly Leave', icon: '📅' });
+    add('/review-timecards', 'Review Timecards', '✅');
+    add('/leave-approval',   'Leave Approval',   '📋');
+    add('/weekly-leave',     'Weekly Leave',     '📅');
   }
 
-  // HR gets these
+  // HR
   if (isHR) {
-    links.push({ to: '/leave-tracker', label: 'Leave Tracker', icon: '👥' });
-    links.push({ to: '/leave-entries', label: 'All Entries', icon: '📝' });
-    links.push({ to: '/weekly-leave', label: 'Weekly Leave', icon: '📅' });
-    links.push({ to: '/hr-timecards', label: 'Timecard Review', icon: '⏱' });
-    links.push({ to: '/supervisor-assignments', label: 'Assignments', icon: '🔗' });
-    links.push({ to: '/compliance', label: 'Compliance', icon: '⚖️' });
+    add('/leave-tracker',  'Leave Tracker',   '👥');
+    add('/leave-entries',  'All Entries',     '📝');
+    add('/weekly-leave',   'Weekly Leave',    '📅'); // no-op if supervisor already added it
+    add('/hr-timecards',   'Timecard Review', '⏱');
+    add('/supervisor-assignments', 'Assignments', '🔗');
+    add('/compliance',     'Compliance',      '⚖️');
   }
 
-  // Admin gets staff directory
+  // Admin only
   if (isAdmin) {
-    links.push({ to: '/staff', label: 'Staff', icon: '👤' });
+    add('/staff', 'Staff', '👤');
   }
+
+  const links = Array.from(linkMap.values());
 
   const isActive = (path) => location.pathname === path;
 
@@ -60,9 +81,15 @@ export default function Navbar() {
     <nav style={{ background: C.navy }} className="shadow-lg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex justify-between items-center h-14">
+
           {/* Logo */}
           <Link to="/dashboard" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm" style={{ background: C.orange }}>TT</div>
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
+              style={{ background: C.orange }}
+            >
+              TT
+            </div>
             <div>
               <span className="text-white font-bold text-lg tracking-tight">TimeTrak</span>
               <span className="text-blue-200 text-xs ml-2 hidden sm:inline">ScholarPath Systems</span>
@@ -87,21 +114,24 @@ export default function Navbar() {
             ))}
           </div>
 
-          {/* Right side: product switcher + user info + sign out + mobile menu */}
+          {/* Right side */}
           <div className="flex items-center gap-3">
             {/* Product Switcher */}
             <a
               href="https://stafftrak.scholarpathsystems.org"
+              onClick={handleSwitchToStaffTrak}
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white border border-white/30 hover:bg-white/10 transition-colors"
               title="Switch to StaffTrak"
             >
               <span>StaffTrak</span>
               <span>→</span>
             </a>
+
             <div className="hidden sm:block text-right">
               <p className="text-white text-sm font-medium">{profile.full_name}</p>
               <p className="text-blue-200 text-[10px] uppercase tracking-wide">{profile.timetrak_role}</p>
             </div>
+
             <button
               onClick={handleSignOut}
               className="hidden sm:block px-3 py-1.5 rounded-md text-xs font-medium text-blue-200 hover:text-white hover:bg-white/10 transition-all"
@@ -147,11 +177,15 @@ export default function Navbar() {
             <p className="text-blue-200 text-xs px-3 mb-1">{profile.full_name} · {profile.timetrak_role}</p>
             <a
               href="https://stafftrak.scholarpathsystems.org"
+              onClick={handleSwitchToStaffTrak}
               className="block px-3 py-2 rounded-md text-sm font-semibold text-[#f3843e] hover:text-white hover:bg-white/10 transition-all"
             >
               Switch to StaffTrak →
             </a>
-            <button onClick={handleSignOut} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-blue-200 hover:text-white hover:bg-white/10">
+            <button
+              onClick={handleSignOut}
+              className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-blue-200 hover:text-white hover:bg-white/10"
+            >
               Sign Out
             </button>
           </div>
