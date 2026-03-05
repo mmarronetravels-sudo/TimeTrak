@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import Navbar from '../components/Navbar'
 
 function LeaveTracker() {
   const { profile } = useAuth()
@@ -332,7 +331,6 @@ function LeaveTracker() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <Navbar />
 
       <main className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
@@ -463,19 +461,33 @@ function LeaveTracker() {
                       })}
                     </div>
 
-                    {/* State/Federal Usage Summary */}
-                    {stateFederal.some(b => parseFloat(b.balance.used) > 0) && (
-                      <div className="mt-3 pt-3 border-t border-gray-100">
-                        <p className="text-xs text-[#666666] font-medium mb-1">State/Federal Leave Used:</p>
-                        <div className="flex flex-wrap gap-2">
-                          {stateFederal.filter(b => parseFloat(b.balance.used) > 0).map(b => (
-                            <span key={b.type.id} className={`text-xs px-2 py-0.5 rounded-full ${getCategoryColor(b.type.category)}`}>
-                              {b.type.name}: {b.balance.used} {b.policy?.tracking_unit || 'weeks'}
-                            </span>
-                          ))}
+                    {/* State/Federal Usage Summary — calculated from entries */}
+                    {(() => {
+                      const protectedUsage = stateFederal.map(b => {
+                        const hrs = entries
+                          .filter(e => e.leave_type_id === b.type.id || e.concurrent_leave_type_id === b.type.id)
+                          .reduce((sum, e) => {
+                            const h = e.tracking_unit === 'days' ? parseFloat(e.amount) * 8
+                                    : e.tracking_unit === 'weeks' ? parseFloat(e.amount) * 40
+                                    : parseFloat(e.amount)
+                            return sum + h
+                          }, 0)
+                        return { ...b, hrsUsed: hrs }
+                      }).filter(b => b.hrsUsed > 0)
+
+                      return protectedUsage.length > 0 ? (
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <p className="text-xs text-[#666666] font-medium mb-1">State/Federal Leave Used:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {protectedUsage.map(b => (
+                              <span key={b.type.id} className={`text-xs px-2 py-0.5 rounded-full ${getCategoryColor(b.type.category)}`}>
+                                {b.type.name}: {b.hrsUsed.toFixed(1)} hrs
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      ) : null
+                    })()}
 
                     {/* Recent entries count */}
                     {entries.length > 0 && (
