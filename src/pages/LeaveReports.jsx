@@ -30,6 +30,7 @@ export default function LeaveReports() {
   const [staff,            setStaff]            = useState([])
   const [leaveTypes,       setLeaveTypes]        = useState([])
   const [leaveBalances,    setLeaveBalances]     = useState([])
+  const [leavePolicies,    setLeavePolicies]     = useState([])
   const [leaveEntries,     setLeaveEntries]      = useState([])
   const [protectedPeriods, setProtectedPeriods] = useState([])
   const [loading,          setLoading]           = useState(true)
@@ -45,18 +46,21 @@ export default function LeaveReports() {
       { data: s  },
       { data: lt },
       { data: lb },
+      { data: lp },
       { data: le },
       { data: pp },
     ] = await Promise.all([
       supabase.from('profiles').select('*').order('full_name'),
       supabase.from('leave_types').select('*').order('sort_order'),
       supabase.from('leave_balances').select('*').eq('school_year', selectedYear),
+      supabase.from('leave_policies').select('*').eq('school_year', selectedYear),
       supabase.from('leave_entries').select('*').eq('school_year', selectedYear).order('start_date'),
       supabase.from('protected_leave_periods').select('*').order('period_start'),
     ])
     if (s)  setStaff(s)
     if (lt) setLeaveTypes(lt)
     if (lb) setLeaveBalances(lb)
+    if (lp) setLeavePolicies(lp)
     if (le) setLeaveEntries(le)
     if (pp) setProtectedPeriods(pp)
     setLoading(false)
@@ -128,7 +132,7 @@ export default function LeaveReports() {
     setExporting(null)
   }
 
-  // ── Individual staff CSV export ────────────────────────────────────────
+  // ── Individual staff XLSX export ──────────────────────────────────────
   const exportIndividual = async (person) => {
     setExporting(person.id)
 
@@ -153,213 +157,210 @@ export default function LeaveReports() {
     const personPeriods  = protectedPeriods.filter(p => p.staff_id === person.id)
 
     // ── Styling helpers ────────────────────────────────────────────────────
-    const NAVY   = '2C3E7E'
-    const ORANGE = 'F3843E'
+    const NAVY  = '2C3E7E'
     const LTBLUE = 'E8EDF7'
-    const LTORANGE = 'FEF3EC'
-    const WHITE  = 'FFFFFF'
-    const WARN   = 'FFF3CD'
-    const WARNBORDER = 'DC3545'
+    const WHITE = 'FFFFFF'
+    const WARN  = 'FFF3CD'
+    const WARNRED = 'DC3545'
+    const LOW   = 'FFF3CD'  // yellow: < 20% remaining
+    const GONE  = 'FFDEDE'  // red-tint: 0 or negative remaining
 
     const cell = (v, opts = {}) => {
       const c = { v, t: typeof v === 'number' ? 'n' : 's' }
       const s = {}
-      if (opts.bold || opts.header || opts.sectionHeader)
-        s.font = { bold: true, color: { rgb: opts.sectionHeader ? WHITE : opts.header ? NAVY : '000000' }, sz: opts.sectionHeader ? 11 : opts.header ? 10 : 10, name: 'Arial' }
-      else
-        s.font = { sz: 10, name: 'Arial', color: { rgb: opts.warn ? WARNBORDER : '333333' } }
       if (opts.sectionHeader)
-        s.fill = { fgColor: { rgb: NAVY }, patternType: 'solid' }
+        s.font = { bold: true, color: { rgb: WHITE }, sz: 11, name: 'Arial' }
       else if (opts.header)
-        s.fill = { fgColor: { rgb: LTBLUE }, patternType: 'solid' }
-      else if (opts.altRow)
-        s.fill = { fgColor: { rgb: 'F8F9FA' }, patternType: 'solid' }
-      else if (opts.warn)
-        s.fill = { fgColor: { rgb: WARN }, patternType: 'solid' }
+        s.font = { bold: true, color: { rgb: NAVY }, sz: 10, name: 'Arial' }
+      else if (opts.bold)
+        s.font = { bold: true, sz: 10, name: 'Arial', color: { rgb: '000000' } }
+      else
+        s.font = { sz: 10, name: 'Arial', color: { rgb: opts.warn ? WARNRED : '333333' } }
+
+      if (opts.sectionHeader)      s.fill = { fgColor: { rgb: NAVY },    patternType: 'solid' }
+      else if (opts.header)        s.fill = { fgColor: { rgb: LTBLUE },  patternType: 'solid' }
+      else if (opts.warnFill)      s.fill = { fgColor: { rgb: opts.warnFill }, patternType: 'solid' }
+      else if (opts.altRow)        s.fill = { fgColor: { rgb: 'F8F9FA' }, patternType: 'solid' }
+
       s.alignment = { vertical: 'center', wrapText: false }
       if (opts.num) { s.numFmt = '0.00'; c.t = 'n' }
-      if (opts.pct) { s.numFmt = '0.0"%"'; c.t = 'n' }
       c.s = s
       return c
     }
 
-    const applyRow = (ws, rowIdx, cells, colStart = 0) => {
+    const applyRow = (ws, rowIdx, cells) => {
       cells.forEach((c, i) => {
         if (c === null) return
-        const ref = XLSX.utils.encode_cell({ r: rowIdx, c: colStart + i })
-        ws[ref] = c
+        ws[XLSX.utils.encode_cell({ r: rowIdx, c: i })] = c
       })
     }
 
     const setRange = (ws, maxR, maxC) => {
-      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } })
+      ws['!ref'] = XLSX.utils.encode_range({ s: { r:0, c:0 }, e: { r: maxR, c: maxC } })
     }
 
-    // ── Tab 1: Summary ─────────────────────────────────────────────────────
+    // ── Entitlement lookup ─────────────────────────────────────────────────
+    // Protected types (PLO/FMLA/OFLA): 480 hrs prorated by contract days / 260
+    // School-provided: use leave_balance allocated amount, else leave_policy amount
+    const PROTECTED_CODES = ['plo', 'fmla', 'ofla']
+    const contractDays = parseFloat(person.contract_days) || 260
+    const prorationPct = Math.min(contractDays / 260, 1)
+
+    const getEntitlement = (lt) => {
+      if (!lt) return null
+      if (PROTECTED_CODES.includes(lt.code?.toLowerCase())) {
+        return parseFloat((480 * prorationPct).toFixed(2))
+      }
+      // Check personal balance record first
+      const bal = personBalances.find(b => b.leave_type_id === lt.id)
+      if (bal) return parseFloat(bal.allocated) + parseFloat(bal.carried_over || 0)
+      // Fall back to policy
+      const pol = leavePolicies.find(p => p.leave_type_id === lt.id)
+      if (pol) return parseFloat(pol.allocated_amount)
+      return null
+    }
+
+    // Hours used per leave type from entries
+    const hoursUsedByType = {}
+    personEntries.forEach(e => {
+      const hrs = e.tracking_unit === 'days'  ? parseFloat(e.amount) * 8
+                : e.tracking_unit === 'weeks' ? parseFloat(e.amount) * 40
+                : parseFloat(e.amount)
+      hoursUsedByType[e.leave_type_id] = (hoursUsedByType[e.leave_type_id] || 0) + hrs
+    })
+
+    // ── Tab 1: Leave Summary ───────────────────────────────────────────────
     const wsSum = {}
     let r = 0
 
-    // Title row
-    wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell('LEAVE REPORT — ' + person.full_name, { sectionHeader: true })
-    wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell('', { sectionHeader: true })
+    // Title
+    wsSum[XLSX.utils.encode_cell({ r, c:0 })] = cell('LEAVE SUMMARY — ' + person.full_name, { sectionHeader: true })
+    for (let c = 1; c <= 4; c++) wsSum[XLSX.utils.encode_cell({ r, c })] = cell('', { sectionHeader: true })
     r++
-    wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell('School Year: ' + selectedYear, { bold: false })
-    wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell('Generated: ' + new Date().toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }), { bold: false })
+    wsSum[XLSX.utils.encode_cell({ r, c:0 })] = cell('School Year: ' + selectedYear)
+    wsSum[XLSX.utils.encode_cell({ r, c:1 })] = cell('Hire Date: ' + (fmtDate(person.hire_date) || '—'))
+    wsSum[XLSX.utils.encode_cell({ r, c:2 })] = cell('Contract Days: ' + (person.contract_days || '—'))
+    wsSum[XLSX.utils.encode_cell({ r, c:3 })] = cell('Generated: ' + new Date().toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }))
     r++; r++ // spacer
 
-    // Staff info section
-    wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell('STAFF INFORMATION', { sectionHeader: true })
-    wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell('', { sectionHeader: true })
+    // Column headers
+    applyRow(wsSum, r, [
+      cell('Leave Type', { header: true }),
+      cell('Hours Used', { header: true }),
+      cell('Entitlement (hrs)', { header: true }),
+      cell('Hours Remaining', { header: true }),
+      cell('Notes', { header: true }),
+    ])
     r++
-    const infoRows = [
-      ['Name', person.full_name],
-      ['Email', person.email || '—'],
-      ['Position', person.position || '—'],
-      ['Building', person.building || '—'],
-      ['Hire Date', fmtDate(person.hire_date)],
-      ['Contract Days', person.contract_days || '—'],
-    ]
-    infoRows.forEach((row, i) => {
-      wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell(row[0], { bold: true })
-      wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell(String(row[1]))
-      r++
-    })
-    r++ // spacer
 
-    // Leave summary section
-    wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell('LEAVE SUMMARY', { sectionHeader: true })
-    wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell('', { sectionHeader: true })
-    r++
-    const typesUsed = new Set(personEntries.map(e => e.leave_type_id)).size
-    const concurrentCount = personEntries.filter(e => e.concurrent_leave_type_id).length
-    const totalDays = personEntries.filter(e => e.tracking_unit === 'days').reduce((s,e) => s + parseFloat(e.amount), 0)
-    const totalHrs  = personEntries.filter(e => e.tracking_unit === 'hours').reduce((s,e) => s + parseFloat(e.amount), 0)
-
-    const summaryRows = [
-      ['Total Leave Entries', personEntries.length],
-      ['Total Days Used', totalDays > 0 ? totalDays.toFixed(2) : '0'],
-      ['Total Hours Used', totalHrs > 0 ? totalHrs.toFixed(2) : '0'],
-      ['Distinct Leave Types Used', typesUsed],
-      ['Entries with Concurrent Leave', concurrentCount],
-      ['Protected Leave Periods', personPeriods.length],
-    ]
-    summaryRows.forEach((row, i) => {
-      const isEven = i % 2 === 0
-      wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell(row[0], { bold: true, altRow: isEven })
-      wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell(String(row[1]), { altRow: isEven })
-      r++
+    // One row per leave type that has usage OR an entitlement
+    const summaryLeaveTypes = leaveTypes.filter(lt => {
+      const hasUsage = (hoursUsedByType[lt.id] || 0) > 0
+      const hasEntitlement = getEntitlement(lt) !== null
+      return hasUsage || hasEntitlement
     })
 
-    wsSum['!cols'] = [{ wch: 30 }, { wch: 36 }]
-    wsSum['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
-    ]
-    setRange(wsSum, r, 1)
-    XLSX.utils.book_append_sheet(wb, wsSum, 'Summary')
-
-    // ── Tab 2: Leave Balances ──────────────────────────────────────────────
-    const wsBal = {}
-    r = 0
-    const balHeaders = ['Leave Type', 'Category', 'Allocated', 'Used', 'Carried Over', 'Remaining', 'Unit']
-    applyRow(wsBal, r, balHeaders.map(h => cell(h, { header: true })))
-    r++
-    if (personBalances.length === 0) {
-      wsBal[XLSX.utils.encode_cell({ r, c: 0 })] = cell('No balance records for this school year — PLO/FMLA/OFLA are protected leave types and do not use school-provided balance pools.', { bold: false })
+    if (summaryLeaveTypes.length === 0) {
+      wsSum[XLSX.utils.encode_cell({ r, c:0 })] = cell('No leave activity or allocations for this school year.')
       r++
     } else {
-      personBalances.forEach((b, i) => {
-        const lt = ltById[b.leave_type_id]
-        const remaining = parseFloat(b.allocated) + parseFloat(b.carried_over || 0) - parseFloat(b.used)
-        const isEven = i % 2 === 0
-        const rowData = [
-          cell(lt?.name || 'Unknown', { altRow: isEven }),
-          cell(lt?.category?.replace(/_/g, ' ') || '', { altRow: isEven }),
-          cell(parseFloat(b.allocated), { num: true, altRow: isEven }),
-          cell(parseFloat(b.used), { num: true, altRow: isEven }),
-          cell(parseFloat(b.carried_over || 0), { num: true, altRow: isEven }),
-          cell(parseFloat(remaining.toFixed(2)), { num: true, altRow: isEven, warn: remaining < 0 }),
-          cell(b.tracking_unit || lt?.tracking_unit || 'hours', { altRow: isEven }),
-        ]
-        applyRow(wsBal, r, rowData); r++
+      summaryLeaveTypes.forEach((lt, i) => {
+        const used       = hoursUsedByType[lt.id] || 0
+        const entitlement = getEntitlement(lt)
+        const remaining  = entitlement !== null ? entitlement - used : null
+        const isEven     = i % 2 === 0
+
+        // Highlight: gone/negative = red-tint, low (< 20%) = yellow
+        let warnFill = null
+        if (remaining !== null) {
+          if (remaining <= 0) warnFill = GONE
+          else if (entitlement && (remaining / entitlement) < 0.2) warnFill = LOW
+        }
+
+        const note = PROTECTED_CODES.includes(lt.code?.toLowerCase())
+          ? `Prorated from 480 hrs (${contractDays}/${260} days)`
+          : (personBalances.find(b => b.leave_type_id === lt.id) ? 'From balance record' : 'From leave policy')
+
+        applyRow(wsSum, r, [
+          cell(lt.name, { altRow: isEven, warnFill }),
+          cell(parseFloat(used.toFixed(2)), { num: true, altRow: isEven, warnFill }),
+          cell(entitlement !== null ? entitlement : '—', { num: entitlement !== null, altRow: isEven, warnFill }),
+          cell(remaining !== null ? parseFloat(remaining.toFixed(2)) : '—', { num: remaining !== null, altRow: isEven, warnFill, warn: remaining !== null && remaining <= 0 }),
+          cell(note, { altRow: isEven, warnFill }),
+        ])
+        r++
       })
     }
-    wsBal['!cols'] = [{ wch: 26 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 8 }]
-    setRange(wsBal, r, 6)
-    XLSX.utils.book_append_sheet(wb, wsBal, 'Leave Balances')
 
-    // ── Tab 3: Leave Entries ───────────────────────────────────────────────
+    wsSum['!cols'] = [{ wch:28 }, { wch:14 }, { wch:18 }, { wch:16 }, { wch:38 }]
+    wsSum['!merges'] = [{ s:{ r:0, c:0 }, e:{ r:0, c:4 } }]
+    setRange(wsSum, r, 4)
+    XLSX.utils.book_append_sheet(wb, wsSum, 'Leave Summary')
+
+    // ── Tab 2: Leave Entries ───────────────────────────────────────────────
     const wsEnt = {}
     r = 0
-    const entHeaders = ['Date Logged','Leave Type','Start Date','End Date','Amount','Unit','Concurrent Leave','Qualifying Reason','Qualifying Relationship','Family Member','Documentation','Notes']
-    applyRow(wsEnt, r, entHeaders.map(h => cell(h, { header: true })))
+    applyRow(wsEnt, r, ['Leave Type','Start Date','End Date','Hours','Concurrent Leave','Notes'].map(h => cell(h, { header: true })))
     r++
     if (personEntries.length === 0) {
-      wsEnt[XLSX.utils.encode_cell({ r, c: 0 })] = cell('No leave entries for this school year.')
+      wsEnt[XLSX.utils.encode_cell({ r, c:0 })] = cell('No leave entries for this school year.')
       r++
     } else {
       personEntries.forEach((e, i) => {
         const lt     = ltById[e.leave_type_id]
         const concLt = e.concurrent_leave_type_id ? ltById[e.concurrent_leave_type_id] : null
-        // Flag bad dates: end before start
         const startD = e.start_date ? new Date(e.start_date) : null
         const endD   = e.end_date   ? new Date(e.end_date)   : null
         const badDate = startD && endD && endD < startD
+        const hrs = e.tracking_unit === 'days'  ? parseFloat(e.amount) * 8
+                  : e.tracking_unit === 'weeks' ? parseFloat(e.amount) * 40
+                  : parseFloat(e.amount)
         const isEven = i % 2 === 0
-        const rowData = [
-          cell(fmtDate(e.created_at?.split('T')[0]), { altRow: isEven }),
+        applyRow(wsEnt, r, [
           cell(lt?.name || 'Unknown', { altRow: isEven }),
           cell(fmtDate(e.start_date), { altRow: isEven, warn: badDate }),
           cell(fmtDate(e.end_date),   { altRow: isEven, warn: badDate }),
-          cell(parseFloat(e.amount),  { num: true, altRow: isEven }),
-          cell(e.tracking_unit || '', { altRow: isEven }),
-          cell(concLt ? concLt.name : '', { altRow: isEven }),
-          cell(e.qualifying_reason ? e.qualifying_reason.replace(/_/g, ' ') : '', { altRow: isEven }),
-          cell(e.qualifying_relationship ? e.qualifying_relationship.replace(/_/g, ' ') : '', { altRow: isEven }),
-          cell(e.relationship_name || '', { altRow: isEven }),
-          cell(e.documentation_on_file ? 'Yes' : 'No', { altRow: isEven }),
-          cell(e.reason || '', { altRow: isEven }),
-        ]
-        applyRow(wsEnt, r, rowData); r++
+          cell(parseFloat(hrs.toFixed(2)), { num: true, altRow: isEven }),
+          cell(concLt ? concLt.name : '—', { altRow: isEven }),
+          cell(e.reason || '—', { altRow: isEven }),
+        ])
+        r++
       })
     }
-    wsEnt['!cols'] = [{ wch:14 },{ wch:26 },{ wch:14 },{ wch:14 },{ wch:9 },{ wch:8 },{ wch:22 },{ wch:28 },{ wch:28 },{ wch:20 },{ wch:14 },{ wch:30 }]
-    setRange(wsEnt, r, 11)
+    wsEnt['!cols'] = [{ wch:26 },{ wch:14 },{ wch:14 },{ wch:10 },{ wch:22 },{ wch:30 }]
+    setRange(wsEnt, r, 5)
     XLSX.utils.book_append_sheet(wb, wsEnt, 'Leave Entries')
 
-    // ── Tab 4: Protected Leave Periods ────────────────────────────────────
-    const wsPer = {}
-    r = 0
-    const perHeaders = ['Leave Type','Period Start','Period End','Status','Contract Days','Proration %','Entitlement (hrs)','Hours Used','Hours Remaining','Qualifying Reason','Qualifying Relationship','Family Member']
-    applyRow(wsPer, r, perHeaders.map(h => cell(h, { header: true })))
-    r++
-    if (personPeriods.length === 0) {
-      wsPer[XLSX.utils.encode_cell({ r, c: 0 })] = cell('No protected leave periods on record.')
+    // ── Tab 3: Protected Periods (only if records exist) ───────────────────
+    if (personPeriods.length > 0) {
+      const wsPer = {}
+      r = 0
+      applyRow(wsPer, r, ['Leave Type','Period Start','Period End','Status','Entitlement (hrs)','Hours Used','Hours Remaining'].map(h => cell(h, { header: true })))
       r++
-    } else {
       personPeriods.forEach((p, i) => {
         const lt = ltById[p.leave_type_id]
-        const nearExhausted = p.hours_remaining != null && parseFloat(p.hours_remaining) < 40
+        const remaining = p.hours_remaining != null ? parseFloat(p.hours_remaining) : null
         const isEven = i % 2 === 0
-        const rowData = [
-          cell(lt?.name || 'Unknown', { altRow: isEven }),
-          cell(fmtDate(p.period_start), { altRow: isEven }),
-          cell(fmtDate(p.period_end), { altRow: isEven }),
-          cell(p.status || '', { altRow: isEven }),
-          cell(p.contract_days ? parseFloat(p.contract_days) : '', { num: !!p.contract_days, altRow: isEven }),
-          cell(p.proration_pct != null ? parseFloat(parseFloat(p.proration_pct).toFixed(1)) : '', { pct: p.proration_pct != null, altRow: isEven }),
-          cell(p.prorated_entitlement_hours ? parseFloat(p.prorated_entitlement_hours) : '', { num: !!p.prorated_entitlement_hours, altRow: isEven }),
-          cell(p.hours_used ? parseFloat(p.hours_used) : 0, { num: true, altRow: isEven }),
-          cell(p.hours_remaining != null ? parseFloat(p.hours_remaining) : '', { num: p.hours_remaining != null, altRow: isEven, warn: nearExhausted }),
-          cell(p.qualifying_reason ? p.qualifying_reason.replace(/_/g, ' ') : '', { altRow: isEven }),
-          cell(p.qualifying_relationship ? p.qualifying_relationship.replace(/_/g, ' ') : '', { altRow: isEven }),
-          cell(p.relationship_name || '', { altRow: isEven }),
-        ]
-        applyRow(wsPer, r, rowData); r++
+        let warnFill = null
+        if (remaining !== null) {
+          if (remaining <= 0) warnFill = GONE
+          else if (remaining < 40) warnFill = LOW
+        }
+        applyRow(wsPer, r, [
+          cell(lt?.name || 'Unknown', { altRow: isEven, warnFill }),
+          cell(fmtDate(p.period_start), { altRow: isEven, warnFill }),
+          cell(fmtDate(p.period_end),   { altRow: isEven, warnFill }),
+          cell(p.status || '', { altRow: isEven, warnFill }),
+          cell(p.prorated_entitlement_hours ? parseFloat(p.prorated_entitlement_hours) : '—', { num: !!p.prorated_entitlement_hours, altRow: isEven, warnFill }),
+          cell(parseFloat(p.hours_used || 0), { num: true, altRow: isEven, warnFill }),
+          cell(remaining !== null ? remaining : '—', { num: remaining !== null, altRow: isEven, warnFill, warn: remaining !== null && remaining <= 0 }),
+        ])
+        r++
       })
+      wsPer['!cols'] = [{ wch:26 },{ wch:14 },{ wch:14 },{ wch:12 },{ wch:18 },{ wch:14 },{ wch:16 }]
+      setRange(wsPer, r, 6)
+      XLSX.utils.book_append_sheet(wb, wsPer, 'Protected Periods')
     }
-    wsPer['!cols'] = [{ wch:26 },{ wch:14 },{ wch:14 },{ wch:12 },{ wch:14 },{ wch:12 },{ wch:18 },{ wch:12 },{ wch:16 },{ wch:28 },{ wch:28 },{ wch:20 }]
-    setRange(wsPer, r, 11)
-    XLSX.utils.book_append_sheet(wb, wsPer, 'Protected Leave Periods')
 
     // ── Download ──────────────────────────────────────────────────────────
     const safeName = person.full_name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()
