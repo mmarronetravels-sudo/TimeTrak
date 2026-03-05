@@ -73,16 +73,18 @@ export default function Staff() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  useEffect(() => { fetchStaff() }, [])
+  useEffect(() => { if (currentProfile) fetchStaff() }, [currentProfile?.id])
 
   const fetchStaff = async () => {
     setLoading(true)
+    // Let RLS handle tenant scoping server-side via get_my_tenant_id().
+    // Avoids issues if currentProfile.tenant_id is null on first render.
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .eq('tenant_id', currentProfile.tenant_id)
       .order('full_name')
-    if (!error && data) {
+    if (error) console.error('Staff fetch error:', error)
+    if (data) {
       setStaff(data)
       setSupervisors(data.filter(p => ['admin', 'hr', 'supervisor'].includes(p.timetrak_role)))
     }
