@@ -23,6 +23,13 @@ function downloadCSV(filename, rows) {
 
 function fmtDate(d) { return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '' }
 function fmtNum(n)  { return n != null ? parseFloat(n).toFixed(2) : '' }
+function toHours(amount, unit) {
+  const n = parseFloat(amount) || 0
+  if (unit === 'hours') return n
+  if (unit === 'days')  return n * 8
+  if (unit === 'weeks') return n * 40
+  return n
+}
 
 export default function LeaveReports() {
   const { profile: currentProfile } = useAuth()
@@ -220,13 +227,31 @@ export default function LeaveReports() {
       return null
     }
 
-    // Hours used per leave type from entries
+    // Hours used per leave type:
+    // - School-provided (sick, personal, etc): use leave_balances.used (source of truth, tracks concurrent)
+    // - Protected (PLO/FMLA/OFLA): calculate from entries (no balance pool)
     const hoursUsedByType = {}
-    personEntries.forEach(e => {
-      const hrs = e.tracking_unit === 'days'  ? parseFloat(e.amount) * 8
-                : e.tracking_unit === 'weeks' ? parseFloat(e.amount) * 40
-                : parseFloat(e.amount)
-      hoursUsedByType[e.leave_type_id] = (hoursUsedByType[e.leave_type_id] || 0) + hrs
+    leaveTypes.forEach(lt => {
+      if (PROTECTED_CODES.includes(lt.code?.toLowerCase())) {
+        // Sum from entries
+        const hrs = personEntries
+          .filter(e => e.leave_type_id === lt.id || e.concurrent_leave_type_id === lt.id)
+          .reduce((sum, e) => {
+            const h = e.tracking_unit === 'days'  ? parseFloat(e.amount) * 8
+                    : e.tracking_unit === 'weeks' ? parseFloat(e.amount) * 40
+                    : parseFloat(e.amount)
+            return sum + h
+          }, 0)
+        if (hrs > 0) hoursUsedByType[lt.id] = hrs
+      } else {
+        // Use balance record
+        const bal = personBalances.find(b => b.leave_type_id === lt.id)
+        if (bal && parseFloat(bal.used) > 0) {
+          // Convert balance unit to hours
+          const unit = bal.tracking_unit || lt.tracking_unit || 'hours'
+          hoursUsedByType[lt.id] = toHours(parseFloat(bal.used), unit)
+        }
+      }
     })
 
     // ── Tab 1: Leave Summary ───────────────────────────────────────────────
