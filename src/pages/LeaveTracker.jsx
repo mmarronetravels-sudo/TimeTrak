@@ -321,7 +321,6 @@ function LeaveTracker() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100">
-        <Navbar />
         <div className="flex items-center justify-center h-64">
           <p className="text-[#666666]">Loading leave data...</p>
         </div>
