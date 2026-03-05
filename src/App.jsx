@@ -51,9 +51,7 @@ export default function App() {
           <Route path="/compliance" element={<ProtectedRoute roles={['hr', 'admin']}><Layout><Compliance /></Layout></ProtectedRoute>} />
           <Route path="/weekly-leave" element={<ProtectedRoute roles={['hr', 'admin', 'supervisor']}><Layout><WeeklyLeaveView /></Layout></ProtectedRoute>} />
           <Route path="/staff" element={<ProtectedRoute roles={['admin']}><Layout><Staff /></Layout></ProtectedRoute>} />
-          <Route path="/leave-reports" element={
-  <ProtectedRoute allowedRoles={['admin', 'hr']}>
-  <Route path="/leave-reports" element={<ProtectedRoute roles={['hr', 'admin']}><Layout><LeaveReports /></Layout></ProtectedRoute>} />
+          <Route path="/leave-reports" element={<ProtectedRoute roles={['hr', 'admin']}><Layout><LeaveReports /></Layout></ProtectedRoute>} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
