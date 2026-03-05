@@ -136,152 +136,233 @@ export default function LeaveReports() {
   const exportIndividual = async (person) => {
     setExporting(person.id)
 
-    // Dynamically load SheetJS from CDN
+    // Load SheetJS
     let XLSX
-    try {
-      const script = document.createElement('script')
-      script.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js'
-      await new Promise((resolve, reject) => {
-        script.onload = resolve; script.onerror = reject
-        document.head.appendChild(script)
-      })
+    if (window.XLSX) {
       XLSX = window.XLSX
-    } catch {
-      // fallback to CSV if SheetJS fails to load
-      alert('Could not load Excel library. Try again or check your connection.')
-      setExporting(null)
-      return
+    } else {
+      try {
+        const script = document.createElement('script')
+        script.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js'
+        await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; document.head.appendChild(script) })
+        XLSX = window.XLSX
+      } catch {
+        alert('Could not load Excel library.'); setExporting(null); return
+      }
     }
 
     const wb = XLSX.utils.book_new()
-
-    // ── Tab 1: Summary ────────────────────────────────────────────────────
     const personEntries  = leaveEntries.filter(e => e.staff_id === person.id)
     const personBalances = leaveBalances.filter(b => b.staff_id === person.id)
     const personPeriods  = protectedPeriods.filter(p => p.staff_id === person.id)
-    const totalHrsUsed   = personEntries.reduce((sum, e) => {
-      const hrs = e.tracking_unit === 'days' ? parseFloat(e.amount) * 8
-                : e.tracking_unit === 'weeks' ? parseFloat(e.amount) * 40
-                : parseFloat(e.amount)
-      return sum + hrs
-    }, 0)
+
+    // ── Styling helpers ────────────────────────────────────────────────────
+    const NAVY   = '2C3E7E'
+    const ORANGE = 'F3843E'
+    const LTBLUE = 'E8EDF7'
+    const LTORANGE = 'FEF3EC'
+    const WHITE  = 'FFFFFF'
+    const WARN   = 'FFF3CD'
+    const WARNBORDER = 'DC3545'
+
+    const cell = (v, opts = {}) => {
+      const c = { v, t: typeof v === 'number' ? 'n' : 's' }
+      const s = {}
+      if (opts.bold || opts.header || opts.sectionHeader)
+        s.font = { bold: true, color: { rgb: opts.sectionHeader ? WHITE : opts.header ? NAVY : '000000' }, sz: opts.sectionHeader ? 11 : opts.header ? 10 : 10, name: 'Arial' }
+      else
+        s.font = { sz: 10, name: 'Arial', color: { rgb: opts.warn ? WARNBORDER : '333333' } }
+      if (opts.sectionHeader)
+        s.fill = { fgColor: { rgb: NAVY }, patternType: 'solid' }
+      else if (opts.header)
+        s.fill = { fgColor: { rgb: LTBLUE }, patternType: 'solid' }
+      else if (opts.altRow)
+        s.fill = { fgColor: { rgb: 'F8F9FA' }, patternType: 'solid' }
+      else if (opts.warn)
+        s.fill = { fgColor: { rgb: WARN }, patternType: 'solid' }
+      s.alignment = { vertical: 'center', wrapText: false }
+      if (opts.num) { s.numFmt = '0.00'; c.t = 'n' }
+      if (opts.pct) { s.numFmt = '0.0"%"'; c.t = 'n' }
+      c.s = s
+      return c
+    }
+
+    const applyRow = (ws, rowIdx, cells, colStart = 0) => {
+      cells.forEach((c, i) => {
+        if (c === null) return
+        const ref = XLSX.utils.encode_cell({ r: rowIdx, c: colStart + i })
+        ws[ref] = c
+      })
+    }
+
+    const setRange = (ws, maxR, maxC) => {
+      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } })
+    }
+
+    // ── Tab 1: Summary ─────────────────────────────────────────────────────
+    const wsSum = {}
+    let r = 0
+
+    // Title row
+    wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell('LEAVE REPORT — ' + person.full_name, { sectionHeader: true })
+    wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell('', { sectionHeader: true })
+    r++
+    wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell('School Year: ' + selectedYear, { bold: false })
+    wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell('Generated: ' + new Date().toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }), { bold: false })
+    r++; r++ // spacer
+
+    // Staff info section
+    wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell('STAFF INFORMATION', { sectionHeader: true })
+    wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell('', { sectionHeader: true })
+    r++
+    const infoRows = [
+      ['Name', person.full_name],
+      ['Email', person.email || '—'],
+      ['Position', person.position || '—'],
+      ['Building', person.building || '—'],
+      ['Hire Date', fmtDate(person.hire_date)],
+      ['Contract Days', person.contract_days || '—'],
+    ]
+    infoRows.forEach((row, i) => {
+      wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell(row[0], { bold: true })
+      wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell(String(row[1]))
+      r++
+    })
+    r++ // spacer
+
+    // Leave summary section
+    wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell('LEAVE SUMMARY', { sectionHeader: true })
+    wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell('', { sectionHeader: true })
+    r++
     const typesUsed = new Set(personEntries.map(e => e.leave_type_id)).size
     const concurrentCount = personEntries.filter(e => e.concurrent_leave_type_id).length
+    const totalDays = personEntries.filter(e => e.tracking_unit === 'days').reduce((s,e) => s + parseFloat(e.amount), 0)
+    const totalHrs  = personEntries.filter(e => e.tracking_unit === 'hours').reduce((s,e) => s + parseFloat(e.amount), 0)
 
-    const summaryData = [
-      ['LEAVE REPORT', ''],
-      ['Generated', new Date().toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' })],
-      ['School Year', selectedYear],
-      ['', ''],
-      ['STAFF INFORMATION', ''],
-      ['Name',          person.full_name],
-      ['Email',         person.email || ''],
-      ['Position',      person.position || ''],
-      ['Building',      person.building || ''],
-      ['Hire Date',     fmtDate(person.hire_date)],
-      ['Contract Days', person.contract_days || ''],
-      ['', ''],
-      ['LEAVE SUMMARY', ''],
-      ['Total Leave Entries',     personEntries.length],
-      ['Total Hours Used',        parseFloat(totalHrsUsed.toFixed(2))],
-      ['Leave Types Used',        typesUsed],
-      ['Concurrent Leave Entries', concurrentCount],
+    const summaryRows = [
+      ['Total Leave Entries', personEntries.length],
+      ['Total Days Used', totalDays > 0 ? totalDays.toFixed(2) : '0'],
+      ['Total Hours Used', totalHrs > 0 ? totalHrs.toFixed(2) : '0'],
+      ['Distinct Leave Types Used', typesUsed],
+      ['Entries with Concurrent Leave', concurrentCount],
       ['Protected Leave Periods', personPeriods.length],
     ]
-    const wsSum = XLSX.utils.aoa_to_sheet(summaryData)
-    wsSum['!cols'] = [{ wch: 28 }, { wch: 35 }]
+    summaryRows.forEach((row, i) => {
+      const isEven = i % 2 === 0
+      wsSum[XLSX.utils.encode_cell({ r, c: 0 })] = cell(row[0], { bold: true, altRow: isEven })
+      wsSum[XLSX.utils.encode_cell({ r, c: 1 })] = cell(String(row[1]), { altRow: isEven })
+      r++
+    })
+
+    wsSum['!cols'] = [{ wch: 30 }, { wch: 36 }]
+    wsSum['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
+    ]
+    setRange(wsSum, r, 1)
     XLSX.utils.book_append_sheet(wb, wsSum, 'Summary')
 
-    // ── Tab 2: Leave Balances ─────────────────────────────────────────────
-    const balHeader = ['Leave Type', 'Category', 'Allocated', 'Used', 'Carried Over', 'Remaining', 'Unit']
-    const balRows = personBalances.length === 0
-      ? [['No balance records for this school year']]
-      : personBalances.map(b => {
-          const lt = ltById[b.leave_type_id]
-          const remaining = parseFloat(b.allocated) + parseFloat(b.carried_over || 0) - parseFloat(b.used)
-          return [
-            lt?.name || 'Unknown',
-            lt?.category?.replace(/_/g, ' ') || '',
-            parseFloat(b.allocated),
-            parseFloat(b.used),
-            parseFloat(b.carried_over || 0),
-            parseFloat(remaining.toFixed(2)),
-            b.tracking_unit || lt?.tracking_unit || 'hours',
-          ]
-        })
-    const wsBal = XLSX.utils.aoa_to_sheet([balHeader, ...balRows])
+    // ── Tab 2: Leave Balances ──────────────────────────────────────────────
+    const wsBal = {}
+    r = 0
+    const balHeaders = ['Leave Type', 'Category', 'Allocated', 'Used', 'Carried Over', 'Remaining', 'Unit']
+    applyRow(wsBal, r, balHeaders.map(h => cell(h, { header: true })))
+    r++
+    if (personBalances.length === 0) {
+      wsBal[XLSX.utils.encode_cell({ r, c: 0 })] = cell('No balance records for this school year — PLO/FMLA/OFLA are protected leave types and do not use school-provided balance pools.', { bold: false })
+      r++
+    } else {
+      personBalances.forEach((b, i) => {
+        const lt = ltById[b.leave_type_id]
+        const remaining = parseFloat(b.allocated) + parseFloat(b.carried_over || 0) - parseFloat(b.used)
+        const isEven = i % 2 === 0
+        const rowData = [
+          cell(lt?.name || 'Unknown', { altRow: isEven }),
+          cell(lt?.category?.replace(/_/g, ' ') || '', { altRow: isEven }),
+          cell(parseFloat(b.allocated), { num: true, altRow: isEven }),
+          cell(parseFloat(b.used), { num: true, altRow: isEven }),
+          cell(parseFloat(b.carried_over || 0), { num: true, altRow: isEven }),
+          cell(parseFloat(remaining.toFixed(2)), { num: true, altRow: isEven, warn: remaining < 0 }),
+          cell(b.tracking_unit || lt?.tracking_unit || 'hours', { altRow: isEven }),
+        ]
+        applyRow(wsBal, r, rowData); r++
+      })
+    }
     wsBal['!cols'] = [{ wch: 26 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 8 }]
+    setRange(wsBal, r, 6)
     XLSX.utils.book_append_sheet(wb, wsBal, 'Leave Balances')
 
-    // ── Tab 3: Leave Entries ──────────────────────────────────────────────
-    const entHeader = [
-      'Date Logged', 'Leave Type', 'Start Date', 'End Date',
-      'Amount', 'Unit', 'Concurrent Leave',
-      'Qualifying Reason', 'Qualifying Relationship', 'Family Member',
-      'Documentation on File', 'Notes',
-    ]
-    const entRows = personEntries.length === 0
-      ? [['No leave entries for this school year']]
-      : personEntries.map(e => {
-          const lt     = ltById[e.leave_type_id]
-          const concLt = e.concurrent_leave_type_id ? ltById[e.concurrent_leave_type_id] : null
-          return [
-            fmtDate(e.created_at?.split('T')[0]),
-            lt?.name || 'Unknown',
-            fmtDate(e.start_date),
-            fmtDate(e.end_date),
-            parseFloat(e.amount),
-            e.tracking_unit || '',
-            concLt ? concLt.name : '',
-            e.qualifying_reason ? e.qualifying_reason.replace(/_/g, ' ') : '',
-            e.qualifying_relationship ? e.qualifying_relationship.replace(/_/g, ' ') : '',
-            e.relationship_name || '',
-            e.documentation_on_file ? 'Yes' : 'No',
-            e.reason || '',
-          ]
-        })
-    const wsEnt = XLSX.utils.aoa_to_sheet([entHeader, ...entRows])
-    wsEnt['!cols'] = [
-      { wch: 14 }, { wch: 26 }, { wch: 14 }, { wch: 14 },
-      { wch: 9 },  { wch: 8 },  { wch: 22 },
-      { wch: 28 }, { wch: 28 }, { wch: 20 },
-      { wch: 22 }, { wch: 30 },
-    ]
+    // ── Tab 3: Leave Entries ───────────────────────────────────────────────
+    const wsEnt = {}
+    r = 0
+    const entHeaders = ['Date Logged','Leave Type','Start Date','End Date','Amount','Unit','Concurrent Leave','Qualifying Reason','Qualifying Relationship','Family Member','Documentation','Notes']
+    applyRow(wsEnt, r, entHeaders.map(h => cell(h, { header: true })))
+    r++
+    if (personEntries.length === 0) {
+      wsEnt[XLSX.utils.encode_cell({ r, c: 0 })] = cell('No leave entries for this school year.')
+      r++
+    } else {
+      personEntries.forEach((e, i) => {
+        const lt     = ltById[e.leave_type_id]
+        const concLt = e.concurrent_leave_type_id ? ltById[e.concurrent_leave_type_id] : null
+        // Flag bad dates: end before start
+        const startD = e.start_date ? new Date(e.start_date) : null
+        const endD   = e.end_date   ? new Date(e.end_date)   : null
+        const badDate = startD && endD && endD < startD
+        const isEven = i % 2 === 0
+        const rowData = [
+          cell(fmtDate(e.created_at?.split('T')[0]), { altRow: isEven }),
+          cell(lt?.name || 'Unknown', { altRow: isEven }),
+          cell(fmtDate(e.start_date), { altRow: isEven, warn: badDate }),
+          cell(fmtDate(e.end_date),   { altRow: isEven, warn: badDate }),
+          cell(parseFloat(e.amount),  { num: true, altRow: isEven }),
+          cell(e.tracking_unit || '', { altRow: isEven }),
+          cell(concLt ? concLt.name : '', { altRow: isEven }),
+          cell(e.qualifying_reason ? e.qualifying_reason.replace(/_/g, ' ') : '', { altRow: isEven }),
+          cell(e.qualifying_relationship ? e.qualifying_relationship.replace(/_/g, ' ') : '', { altRow: isEven }),
+          cell(e.relationship_name || '', { altRow: isEven }),
+          cell(e.documentation_on_file ? 'Yes' : 'No', { altRow: isEven }),
+          cell(e.reason || '', { altRow: isEven }),
+        ]
+        applyRow(wsEnt, r, rowData); r++
+      })
+    }
+    wsEnt['!cols'] = [{ wch:14 },{ wch:26 },{ wch:14 },{ wch:14 },{ wch:9 },{ wch:8 },{ wch:22 },{ wch:28 },{ wch:28 },{ wch:20 },{ wch:14 },{ wch:30 }]
+    setRange(wsEnt, r, 11)
     XLSX.utils.book_append_sheet(wb, wsEnt, 'Leave Entries')
 
     // ── Tab 4: Protected Leave Periods ────────────────────────────────────
-    const perHeader = [
-      'Leave Type', 'Period Start', 'Period End', 'Status',
-      'Contract Days', 'Proration %', 'Entitlement (hrs)',
-      'Hours Used', 'Hours Remaining',
-      'Qualifying Reason', 'Qualifying Relationship', 'Family Member',
-    ]
-    const perRows = personPeriods.length === 0
-      ? [['No protected leave periods on record']]
-      : personPeriods.map(p => {
-          const lt = ltById[p.leave_type_id]
-          return [
-            lt?.name || 'Unknown',
-            fmtDate(p.period_start),
-            fmtDate(p.period_end),
-            p.status || '',
-            p.contract_days || '',
-            p.proration_pct != null ? parseFloat(parseFloat(p.proration_pct).toFixed(1)) : '',
-            p.prorated_entitlement_hours ? parseFloat(p.prorated_entitlement_hours) : '',
-            p.hours_used ? parseFloat(p.hours_used) : 0,
-            p.hours_remaining ? parseFloat(p.hours_remaining) : '',
-            p.qualifying_reason ? p.qualifying_reason.replace(/_/g, ' ') : '',
-            p.qualifying_relationship ? p.qualifying_relationship.replace(/_/g, ' ') : '',
-            p.relationship_name || '',
-          ]
-        })
-    const wsPer = XLSX.utils.aoa_to_sheet([perHeader, ...perRows])
-    wsPer['!cols'] = [
-      { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
-      { wch: 14 }, { wch: 12 }, { wch: 18 },
-      { wch: 12 }, { wch: 16 },
-      { wch: 28 }, { wch: 28 }, { wch: 20 },
-    ]
+    const wsPer = {}
+    r = 0
+    const perHeaders = ['Leave Type','Period Start','Period End','Status','Contract Days','Proration %','Entitlement (hrs)','Hours Used','Hours Remaining','Qualifying Reason','Qualifying Relationship','Family Member']
+    applyRow(wsPer, r, perHeaders.map(h => cell(h, { header: true })))
+    r++
+    if (personPeriods.length === 0) {
+      wsPer[XLSX.utils.encode_cell({ r, c: 0 })] = cell('No protected leave periods on record.')
+      r++
+    } else {
+      personPeriods.forEach((p, i) => {
+        const lt = ltById[p.leave_type_id]
+        const nearExhausted = p.hours_remaining != null && parseFloat(p.hours_remaining) < 40
+        const isEven = i % 2 === 0
+        const rowData = [
+          cell(lt?.name || 'Unknown', { altRow: isEven }),
+          cell(fmtDate(p.period_start), { altRow: isEven }),
+          cell(fmtDate(p.period_end), { altRow: isEven }),
+          cell(p.status || '', { altRow: isEven }),
+          cell(p.contract_days ? parseFloat(p.contract_days) : '', { num: !!p.contract_days, altRow: isEven }),
+          cell(p.proration_pct != null ? parseFloat(parseFloat(p.proration_pct).toFixed(1)) : '', { pct: p.proration_pct != null, altRow: isEven }),
+          cell(p.prorated_entitlement_hours ? parseFloat(p.prorated_entitlement_hours) : '', { num: !!p.prorated_entitlement_hours, altRow: isEven }),
+          cell(p.hours_used ? parseFloat(p.hours_used) : 0, { num: true, altRow: isEven }),
+          cell(p.hours_remaining != null ? parseFloat(p.hours_remaining) : '', { num: p.hours_remaining != null, altRow: isEven, warn: nearExhausted }),
+          cell(p.qualifying_reason ? p.qualifying_reason.replace(/_/g, ' ') : '', { altRow: isEven }),
+          cell(p.qualifying_relationship ? p.qualifying_relationship.replace(/_/g, ' ') : '', { altRow: isEven }),
+          cell(p.relationship_name || '', { altRow: isEven }),
+        ]
+        applyRow(wsPer, r, rowData); r++
+      })
+    }
+    wsPer['!cols'] = [{ wch:26 },{ wch:14 },{ wch:14 },{ wch:12 },{ wch:14 },{ wch:12 },{ wch:18 },{ wch:12 },{ wch:16 },{ wch:28 },{ wch:28 },{ wch:20 }]
+    setRange(wsPer, r, 11)
     XLSX.utils.book_append_sheet(wb, wsPer, 'Protected Leave Periods')
 
     // ── Download ──────────────────────────────────────────────────────────
@@ -289,7 +370,6 @@ export default function LeaveReports() {
     XLSX.writeFile(wb, `leave-report-${safeName}-${selectedYear}.xlsx`)
     setExporting(null)
   }
-
   // ── Stats for the summary cards ────────────────────────────────────────
   const staffWithMultipleTypes = staff.filter(s => (leaveTypeBreadth[s.id] || 0) >= 3).length
   const staffWithConcurrent    = new Set(leaveEntries.filter(e => e.concurrent_leave_type_id).map(e => e.staff_id)).size
