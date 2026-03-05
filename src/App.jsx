@@ -18,6 +18,7 @@ import SupervisorAssignments from './pages/SupervisorAssignments';
 import Compliance from './pages/Compliance';
 import Staff from './pages/Staff';
 import WeeklyLeaveView from './pages/WeeklyLeaveView';
+import LeaveReports from './pages/LeaveReports'
 
 function Layout({ children }) {
   return (
@@ -50,6 +51,9 @@ export default function App() {
           <Route path="/compliance" element={<ProtectedRoute roles={['hr', 'admin']}><Layout><Compliance /></Layout></ProtectedRoute>} />
           <Route path="/weekly-leave" element={<ProtectedRoute roles={['hr', 'admin', 'supervisor']}><Layout><WeeklyLeaveView /></Layout></ProtectedRoute>} />
           <Route path="/staff" element={<ProtectedRoute roles={['admin']}><Layout><Staff /></Layout></ProtectedRoute>} />
+          <Route path="/leave-reports" element={
+  <ProtectedRoute allowedRoles={['admin', 'hr']}>
+  <Route path="/leave-reports" element={<ProtectedRoute roles={['hr', 'admin']}><Layout><LeaveReports /></Layout></ProtectedRoute>} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
