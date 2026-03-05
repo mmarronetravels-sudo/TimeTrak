@@ -55,7 +55,7 @@ export default function LeaveEntries() {
     setTimeout(() => setNotification(null), 3500)
   }
 
-  // ── Load data — Session 27 two-step pattern, no FK joins on profiles ──
+  // ── Load data — two-step pattern, no FK joins on profiles ──
   const loadData = async () => {
     setLoading(true)
 
@@ -79,7 +79,7 @@ export default function LeaveEntries() {
 
     if (raw?.length > 0) {
       const ids = [...new Set(raw.map(e => e.staff_id))]
-      // Always select('*') — comma columns cause 400 errors (Session 27)
+      // Always select('*') — comma columns cause 400 errors
       const { data: staffData } = await supabase
         .from('profiles').select('*').in('id', ids)
       const map = {}
@@ -182,6 +182,7 @@ export default function LeaveEntries() {
     if (!deletingEntry) return
     setSaving(true)
 
+    // Delete the entry first
     const { error } = await supabase
       .from('leave_entries').delete().eq('id', deletingEntry.id)
 
@@ -192,45 +193,52 @@ export default function LeaveEntries() {
       return
     }
 
-    // 1. Reverse leave_balances.used (school-provided + state/federal)
-    const balance = leaveBalances.find(b =>
-      b.staff_id     === deletingEntry.staff_id &&
-      b.leave_type_id === deletingEntry.leave_type_id &&
-      b.school_year  === schoolYear
-    )
-    if (balance) {
-      // Convert entry amount to balance's stored unit
-      const entryHours   = toHours(deletingEntry.amount, deletingEntry.tracking_unit)
-      const reverseAmt   = toUnit(entryHours, balance.tracking_unit || deletingEntry.tracking_unit)
-      const newUsed      = Math.max(0, parseFloat(balance.used) - reverseAmt)
+    // 1. Reverse leave_balances.used — fetch FRESH from DB to guarantee accuracy
+    //    (never rely on state array, which may be stale or missing the row)
+    const { data: freshBalance } = await supabase
+      .from('leave_balances')
+      .select('*')
+      .eq('staff_id', deletingEntry.staff_id)
+      .eq('leave_type_id', deletingEntry.leave_type_id)
+      .eq('school_year', schoolYear)
+      .maybeSingle()
+
+    if (freshBalance) {
+      const entryHours = toHours(deletingEntry.amount, deletingEntry.tracking_unit)
+      const balUnit    = freshBalance.tracking_unit || deletingEntry.tracking_unit
+      const reverseAmt = toUnit(entryHours, balUnit)
+      const newUsed    = Math.max(0, parseFloat(freshBalance.used) - reverseAmt)
 
       const { data: updatedBal } = await supabase
         .from('leave_balances')
         .update({ used: +newUsed.toFixed(2) })
-        .eq('id', balance.id)
+        .eq('id', freshBalance.id)
         .select()
       if (updatedBal) {
-        setLeaveBalances(prev => prev.map(b => b.id === balance.id ? updatedBal[0] : b))
+        setLeaveBalances(prev => prev.map(b => b.id === freshBalance.id ? updatedBal[0] : b))
       }
     }
 
-    // 2. Reverse protected_leave_periods.hours_used (FMLA/OFLA/PLO)
+    // 2. Reverse protected_leave_periods.hours_used (FMLA/OFLA/PLO) — also fetch fresh
     if (isProtectedType(deletingEntry.leave_type_id)) {
       const entryHours = toHours(deletingEntry.amount, deletingEntry.tracking_unit)
-      // Find the most recent active/exhausted period for this staff + leave type
-      const period = protectedPeriods
-        .filter(p =>
-          p.staff_id      === deletingEntry.staff_id &&
-          p.leave_type_id === deletingEntry.leave_type_id &&
-          p.status        !== 'expired'
-        )
-        .sort((a, b) => new Date(b.period_start) - new Date(a.period_start))[0]
+
+      const { data: freshPeriods } = await supabase
+        .from('protected_leave_periods')
+        .select('*')
+        .eq('staff_id', deletingEntry.staff_id)
+        .eq('leave_type_id', deletingEntry.leave_type_id)
+        .neq('status', 'expired')
+        .order('period_start', { ascending: false })
+        .limit(1)
+
+      const period = freshPeriods?.[0]
 
       if (period) {
-        const newHoursUsed  = Math.max(0, parseFloat(period.hours_used) - entryHours)
-        const entitlement   = parseFloat(period.prorated_entitlement_hours)
-        const newRemaining  = Math.max(0, entitlement - newHoursUsed)
-        const newStatus     = newHoursUsed >= entitlement ? 'exhausted' : 'active'
+        const newHoursUsed = Math.max(0, parseFloat(period.hours_used) - entryHours)
+        const entitlement  = parseFloat(period.prorated_entitlement_hours)
+        const newRemaining = Math.max(0, entitlement - newHoursUsed)
+        const newStatus    = newHoursUsed >= entitlement ? 'exhausted' : 'active'
 
         const { data: updatedPeriod } = await supabase
           .from('protected_leave_periods')
