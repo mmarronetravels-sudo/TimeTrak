@@ -48,7 +48,7 @@ export default function LeaveReports() {
       { data: le },
       { data: pp },
     ] = await Promise.all([
-      supabase.from('profiles').select('*').eq('is_active', true).order('full_name'),
+      supabase.from('profiles').select('*').order('full_name'),
       supabase.from('leave_types').select('*').order('sort_order'),
       supabase.from('leave_balances').select('*').eq('school_year', selectedYear),
       supabase.from('leave_entries').select('*').eq('school_year', selectedYear).order('start_date'),
@@ -90,7 +90,7 @@ export default function LeaveReports() {
     // Header row: Name, Position, Building, Contract Days, then per leave type: "TypeName (hrs used)", "TypeName (entries)", then totals
     const ltCols = leaveTypes.map(lt => lt.name)
     const header = [
-      'Staff Name', 'Position', 'Building', 'Contract Days', 'Hire Date',
+      'Staff Name', 'Position', 'Building', 'Contract Days', 'Hire Date', 'Status',
       ...leaveTypes.flatMap(lt => [`${lt.name} - Hrs Used`, `${lt.name} - # Entries`]),
       'Total Leave Types Used', 'Total Hours Used', 'Concurrent Leave Entries',
     ]
@@ -111,6 +111,7 @@ export default function LeaveReports() {
         person.building || '',
         person.contract_days || '',
         person.hire_date || '',
+        person.is_active === false ? 'Archived' : 'Active',
         ...leaveTypes.flatMap(lt => [
           ltData[lt.id] ? fmtNum(ltData[lt.id].hours) : '0.00',
           ltData[lt.id] ? ltData[lt.id].count : '0',
