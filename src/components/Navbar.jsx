@@ -62,6 +62,7 @@ export default function Navbar() {
   if (isHR) {
     add('/leave-tracker',  'Leave Tracker',   '👥');
     add('/leave-entries',  'All Entries',     '📝');
+    add('/leave-reports',  'Leave Reports',   '📊');
     add('/weekly-leave',   'Weekly Leave',    '📅'); // no-op if supervisor already added it
     add('/hr-timecards',   'Timecard Review', '⏱');
     add('/supervisor-assignments', 'Assignments', '🔗');
