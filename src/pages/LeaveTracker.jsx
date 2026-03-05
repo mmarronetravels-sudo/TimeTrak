@@ -312,8 +312,10 @@ function LeaveTracker() {
   const staffApproachingLimits = staff.filter(s => {
     const balances = getStaffBalances(s.id)
     return balances.some(b => {
-      const allocated = parseFloat(b.balance.allocated) + parseFloat(b.balance.carried_over || 0)
-      const used = parseFloat(b.balance.used)
+      const typeUnit = b.type.tracking_unit || 'days'
+      const toHrs = (amt) => typeUnit === 'days' ? amt * 8 : typeUnit === 'weeks' ? amt * 40 : amt
+      const allocated = toHrs(parseFloat(b.balance.allocated) + parseFloat(b.balance.carried_over || 0))
+      const used = toHrs(parseFloat(b.balance.used))
       return allocated > 0 && (used / allocated) >= 0.75
     })
   }).length
@@ -436,17 +438,19 @@ function LeaveTracker() {
                     {/* School-Provided Balances */}
                     <div className="space-y-2">
                       {schoolProvided.map(b => {
-                        const allocated = parseFloat(b.balance.allocated) + parseFloat(b.balance.carried_over || 0)
-                        const used = parseFloat(b.balance.used)
-                        const remaining = Math.max(0, allocated - used)
-                        const percent = getUsagePercent(used, allocated)
+                        const typeUnit = b.type.tracking_unit || 'days'
+                        const toHrs = (amt) => typeUnit === 'days' ? amt * 8 : typeUnit === 'weeks' ? amt * 40 : amt
+                        const allocatedHrs = toHrs(parseFloat(b.balance.allocated) + parseFloat(b.balance.carried_over || 0))
+                        const usedHrs = toHrs(parseFloat(b.balance.used))
+                        const remainingHrs = Math.max(0, allocatedHrs - usedHrs)
+                        const percent = getUsagePercent(usedHrs, allocatedHrs)
 
                         return (
                           <div key={b.type.id}>
                             <div className="flex justify-between text-xs mb-1">
                               <span className="text-[#666666]">{b.type.name}</span>
                               <span className="font-medium text-[#2c3e7e]">
-                                {remaining} of {allocated} {b.balance.tracking_unit || b.policy?.tracking_unit || 'days'} remaining
+                                {remainingHrs} of {allocatedHrs} hrs remaining
                               </span>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-2">
@@ -854,11 +858,16 @@ function LeaveTracker() {
                     remaining = Math.max(0, allocated - used)
                     percent = getUsagePercent(used, allocated)
                   } else {
-                    allocated = parseFloat(b.balance.allocated) + parseFloat(b.balance.carried_over || 0)
-                    used = parseFloat(b.balance.used)
+                    const typeUnit = b.type.tracking_unit || 'days'
+                    const rawAllocated = parseFloat(b.balance.allocated) + parseFloat(b.balance.carried_over || 0)
+                    const rawUsed = parseFloat(b.balance.used)
+                    // Convert to hours for consistent display
+                    const toHrs = (amt) => typeUnit === 'days' ? amt * 8 : typeUnit === 'weeks' ? amt * 40 : amt
+                    allocated = toHrs(rawAllocated)
+                    used = toHrs(rawUsed)
                     remaining = Math.max(0, allocated - used)
                     percent = getUsagePercent(used, allocated)
-                    unit = b.balance.tracking_unit || b.policy?.tracking_unit || 'days'
+                    unit = 'hrs'
                   }
 
                   return (
