@@ -633,33 +633,19 @@ export default function WeeklyLeaveView() {
       // 2. Fetch leave types for this tenant
       const { data: leaveTypesData, error: ltErr } = await supabase
         .from('leave_types')
-        .select('id, name, code, category, tracking_unit')
+        .select('*')
         .eq('tenant_id', tenantId)
       if (ltErr) throw ltErr
 
-      const leaveTypeById   = {}
-      const leaveTypeByName = {} // fallback lookup by name
+      const leaveTypeById = {}
       ;(leaveTypesData || []).forEach(lt => {
-        leaveTypeById[lt.id]   = lt
-        leaveTypeByName[(lt.name || '').toLowerCase()] = lt
+        leaveTypeById[lt.id] = lt
       })
 
-      // Helper: resolve a leave_entries row to a code
+      // Helper: resolve a leave_entries row to a leave type code
       const resolveCode = (entry) => {
-        // Prefer leave_type_id FK
         if (entry.leave_type_id && leaveTypeById[entry.leave_type_id]) {
           return leaveTypeById[entry.leave_type_id].code
-        }
-        // Fall back to leave_type text field
-        if (entry.leave_type) {
-          const norm = entry.leave_type.toLowerCase()
-          if (leaveTypeByName[norm]) return leaveTypeByName[norm].code
-          // Try partial match
-          for (const [name, lt] of Object.entries(leaveTypeByName)) {
-            if (norm.includes(name) || name.includes(norm)) return lt.code
-          }
-          // Direct use if it looks like a code already
-          return norm.replace(/[- ]/g, '_')
         }
         return 'unknown'
       }
@@ -690,18 +676,9 @@ export default function WeeklyLeaveView() {
             endDate:    entry.end_date,
           })
         })
-        // Also track concurrent leave if present
-        if (entry.concurrent_leave) {
-          // concurrent_leave is a text field (e.g. "FMLA"), map it too
-          const concNorm = (entry.concurrent_leave || '').toLowerCase()
-          let concCode   = null
-          if (leaveTypeByName[concNorm]) {
-            concCode = leaveTypeByName[concNorm].code
-          } else {
-            for (const [name, lt] of Object.entries(leaveTypeByName)) {
-              if (concNorm.includes(name) || name.includes(concNorm)) { concCode = lt.code; break }
-            }
-          }
+        // Also track concurrent leave if present (concurrent_leave_type_id is a UUID FK)
+        if (entry.concurrent_leave_type_id && leaveTypeById[entry.concurrent_leave_type_id]) {
+          const concCode = leaveTypeById[entry.concurrent_leave_type_id].code
           if (concCode && concCode !== code) {
             days.forEach(({ date, hours }) => {
               expandedEvents.push({
@@ -736,7 +713,8 @@ export default function WeeklyLeaveView() {
           ...b,
           code:            lt?.code || 'unknown',
           leave_type_name: lt?.name || '',
-          tracking_unit:   lt?.tracking_unit || b.tracking_unit || 'days',
+          // tracking_unit: prefer balance's own field, fall back to leave_type, then 'days'
+          tracking_unit:   b.tracking_unit || lt?.tracking_unit || 'days',
         })
       })
       setStaffBalances(balMap)
