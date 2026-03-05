@@ -90,8 +90,8 @@ export default function LeaveReports() {
     // Header row: Name, Position, Building, Contract Days, then per leave type: "TypeName (hrs used)", "TypeName (entries)", then totals
     const ltCols = leaveTypes.map(lt => lt.name)
     const header = [
-      'Staff Name', 'Position', 'Building', 'Contract Days', 'Hire Date', 'Status',
-      ...leaveTypes.flatMap(lt => [`${lt.name} - Hrs Used`, `${lt.name} - # Entries`]),
+      'Staff Name', 'Contract Days', 'Hire Date', 'Status',
+      ...leaveTypes.map(lt => `${lt.name} - Hrs Used`),
       'Total Leave Types Used', 'Total Hours Used', 'Concurrent Leave Entries',
     ]
 
@@ -107,15 +107,10 @@ export default function LeaveReports() {
 
       rows.push([
         person.full_name,
-        person.position || '',
-        person.building || '',
         person.contract_days || '',
         person.hire_date || '',
         person.is_active === false ? 'Archived' : 'Active',
-        ...leaveTypes.flatMap(lt => [
-          ltData[lt.id] ? fmtNum(ltData[lt.id].hours) : '0.00',
-          ltData[lt.id] ? ltData[lt.id].count : '0',
-        ]),
+        ...leaveTypes.map(lt => ltData[lt.id] ? fmtNum(ltData[lt.id].hours) : '0.00'),
         totalTypes,
         fmtNum(totalHrs),
         concurrentCount,
