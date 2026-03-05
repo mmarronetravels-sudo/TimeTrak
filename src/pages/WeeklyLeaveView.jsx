@@ -169,14 +169,21 @@ function WeeklyLeaveGrid({ weekStart, staff, leaveEventsByStaffDate, leaveTypesB
       s = s.filter(st => (st.building || '') === filterBuilding)
     }
     if (searchTerm) {
+      // When searching by name, show all matches regardless of leave this week
       const q = searchTerm.toLowerCase()
       s = s.filter(st =>
         (st.full_name || '').toLowerCase().includes(q) ||
         (st.position || '').toLowerCase().includes(q)
       )
+    } else {
+      // Default: only show staff who have leave during the selected week
+      const weekDateStrs = DAYS.map((_, i) => fmtDate(addDays(weekStart, i)))
+      s = s.filter(st =>
+        weekDateStrs.some(dateStr => leaveEventsByStaffDate[`${st.id}-${dateStr}`]?.length > 0)
+      )
     }
     return s
-  }, [staff, filterBuilding, searchTerm])
+  }, [staff, filterBuilding, searchTerm, weekStart, leaveEventsByStaffDate])
 
   // Summary stats
   const today = fmtDate(new Date())
@@ -225,7 +232,13 @@ function WeeklyLeaveGrid({ weekStart, staff, leaveEventsByStaffDate, leaveTypesB
   if (filteredStaff.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: 60, color: C.gray }}>
-        No staff found{filterBuilding !== 'all' ? ` in ${filterBuilding}` : ''}{searchTerm ? ` matching "${searchTerm}"` : ''}.
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🎉</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: C.navy, marginBottom: 6 }}>
+          {searchTerm ? `No staff matching "${searchTerm}"` : 'No staff on leave this week'}
+        </div>
+        <div style={{ fontSize: 13 }}>
+          {searchTerm ? 'Try a different search term.' : 'Everyone is in — no leave entries for this week.'}
+        </div>
       </div>
     )
   }
