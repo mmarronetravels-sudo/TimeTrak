@@ -561,7 +561,7 @@ function LeaveTracker() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-sm text-[#666666]">
-                          {new Date(entry.start_date).toLocaleDateString()} â€“ {new Date(entry.end_date).toLocaleDateString()}
+                          {new Date(entry.start_date).toLocaleDateString()} — {new Date(entry.end_date).toLocaleDateString()}
                         </td>
                         <td className="px-4 py-3 text-sm text-[#666666]">
                           {entry.amount} {entry.tracking_unit}
@@ -571,13 +571,13 @@ function LeaveTracker() {
                             <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">
                               + {getTypeName(entry.concurrent_leave_type_id)}
                             </span>
-                          ) : 'â€”'}
+                          ) : '—'}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           {entry.documentation_on_file ? (
-                            <span className="text-green-600">âœ“</span>
+                            <span className="text-green-600">✓</span>
                           ) : (
-                            <span className="text-gray-300">â€”</span>
+                            <span className="text-gray-300">—</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-sm">
@@ -820,7 +820,7 @@ function LeaveTracker() {
               <div className="flex justify-between items-center mb-4">
                 <div>
                   <h3 className="text-lg font-bold text-[#2c3e7e]">{selectedStaff.full_name}</h3>
-                  <p className="text-sm text-[#666666]">{selectedStaff.position_type || selectedStaff.role} â€” {schoolYear}</p>
+                  <p className="text-sm text-[#666666]">{selectedStaff.position_type || selectedStaff.role} — {schoolYear}</p>
                 </div>
                 <button onClick={() => setShowDetailModal(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
               </div>
@@ -829,11 +829,37 @@ function LeaveTracker() {
               <h4 className="font-semibold text-[#2c3e7e] mb-3">Leave Balances</h4>
               <div className="space-y-3 mb-6">
                 {getStaffBalances(selectedStaff.id).map(b => {
-                  const allocated = parseFloat(b.balance.allocated) + parseFloat(b.balance.carried_over || 0)
-                  const used = parseFloat(b.balance.used)
-                  const remaining = Math.max(0, allocated - used)
-                  const percent = getUsagePercent(used, allocated)
-                  const isWeeks = b.policy?.tracking_unit === 'weeks'
+                  const isProtected = b.type.category === 'federal' || b.type.category === 'state'
+                  const staffEntries = getStaffEntries(selectedStaff.id)
+
+                  // For protected types: calculate hours from entries (including concurrent)
+                  // For school-provided: use balance record
+                  let used, allocated, unit, remaining, percent
+
+                  if (isProtected) {
+                    const hrsUsed = staffEntries
+                      .filter(e => e.leave_type_id === b.type.id || e.concurrent_leave_type_id === b.type.id)
+                      .reduce((sum, e) => {
+                        const h = e.tracking_unit === 'days'  ? parseFloat(e.amount) * 8
+                                : e.tracking_unit === 'weeks' ? parseFloat(e.amount) * 40
+                                : parseFloat(e.amount)
+                        return sum + h
+                      }, 0)
+                    // Entitlement: 480 hrs prorated by contract days
+                    const contractDays = parseFloat(selectedStaff.contract_days) || 260
+                    const entitlementHrs = parseFloat((480 * Math.min(contractDays / 260, 1)).toFixed(1))
+                    used = parseFloat(hrsUsed.toFixed(1))
+                    allocated = entitlementHrs
+                    unit = 'hrs'
+                    remaining = Math.max(0, allocated - used)
+                    percent = getUsagePercent(used, allocated)
+                  } else {
+                    allocated = parseFloat(b.balance.allocated) + parseFloat(b.balance.carried_over || 0)
+                    used = parseFloat(b.balance.used)
+                    remaining = Math.max(0, allocated - used)
+                    percent = getUsagePercent(used, allocated)
+                    unit = b.balance.tracking_unit || b.policy?.tracking_unit || 'days'
+                  }
 
                   return (
                     <div key={b.type.id} className="bg-gray-50 rounded-lg p-3">
@@ -845,7 +871,7 @@ function LeaveTracker() {
                           </span>
                         </div>
                         <span className="text-sm font-medium text-[#2c3e7e]">
-                          {used} / {allocated} {isWeeks ? 'weeks' : 'days'} used
+                          {used} / {allocated} {unit} used
                         </span>
                       </div>
                       {allocated > 0 && (
@@ -857,8 +883,8 @@ function LeaveTracker() {
                         </div>
                       )}
                       <div className="flex justify-between text-xs text-[#666666] mt-1">
-                        <span>{remaining} {isWeeks ? 'weeks' : 'days'} remaining</span>
-                        {parseFloat(b.balance.carried_over) > 0 && (
+                        <span>{remaining} {unit} remaining</span>
+                        {!isProtected && parseFloat(b.balance.carried_over) > 0 && (
                           <span>(includes {b.balance.carried_over} carried over)</span>
                         )}
                       </div>
@@ -881,7 +907,7 @@ function LeaveTracker() {
                             {getTypeName(entry.leave_type_id)}
                           </span>
                           <span className="text-sm text-[#666666]">
-                            {new Date(entry.start_date).toLocaleDateString()} â€“ {new Date(entry.end_date).toLocaleDateString()}
+                            {new Date(entry.start_date).toLocaleDateString()} — {new Date(entry.end_date).toLocaleDateString()}
                           </span>
                         </div>
                         <p className="text-sm text-[#2c3e7e] font-medium mt-1">
@@ -895,7 +921,7 @@ function LeaveTracker() {
                         {entry.reason && <p className="text-xs text-[#666666] mt-1">{entry.reason}</p>}
                       </div>
                       <div className="flex items-center gap-2">
-                        {entry.documentation_on_file && <span className="text-green-600 text-xs">Docs âœ“</span>}
+                        {entry.documentation_on_file && <span className="text-green-600 text-xs">Docs ✓</span>}
                         <button
                           onClick={() => handleDeleteEntry(entry)}
                           className="text-red-400 hover:text-red-600 text-xs"
