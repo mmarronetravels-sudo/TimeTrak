@@ -164,12 +164,52 @@ export default function LeaveEntries() {
 
     if (error) { showNotif('Error saving: ' + error.message, 'error'); return }
 
+    // Adjust balances if amount or leave type changed
+    const oldHours = toHours(editingEntry.amount, editingEntry.tracking_unit)
+    const newHours = toHours(editForm.amount, editForm.tracking_unit)
+    const oldPrimaryId   = editingEntry.leave_type_id
+    const newPrimaryId   = editForm.leave_type_id
+    const oldConcurrentId = editingEntry.concurrent_leave_type_id || null
+    const newConcurrentId = editForm.concurrent_leave_type_id || null
+
+    // Helper: adjust a balance by delta hours (positive = add usage, negative = remove)
+    const adjustBalance = async (staffId, leaveTypeId, deltaHours) => {
+      if (!leaveTypeId || deltaHours === 0) return
+      const { data: bal } = await supabase
+        .from('leave_balances').select('*')
+        .eq('staff_id', staffId).eq('leave_type_id', leaveTypeId).eq('school_year', schoolYear)
+        .maybeSingle()
+      if (!bal) return
+      const balUnit = bal.tracking_unit || 'hours'
+      const deltaAmt = toUnit(deltaHours, balUnit)
+      const newUsed = Math.max(0, parseFloat(bal.used) + deltaAmt)
+      const { data: updatedBal } = await supabase
+        .from('leave_balances').update({ used: +newUsed.toFixed(2) }).eq('id', bal.id).select()
+      if (updatedBal) setLeaveBalances(prev => prev.map(b => b.id === bal.id ? updatedBal[0] : b))
+    }
+
+    // Primary type: if type changed, reverse old and add new; else just adjust delta
+    if (oldPrimaryId !== newPrimaryId) {
+      await adjustBalance(editingEntry.staff_id, oldPrimaryId, -oldHours)
+      await adjustBalance(editingEntry.staff_id, newPrimaryId, +newHours)
+    } else {
+      await adjustBalance(editingEntry.staff_id, newPrimaryId, newHours - oldHours)
+    }
+
+    // Concurrent type: if changed, reverse old and add new; else adjust delta
+    if (oldConcurrentId !== newConcurrentId) {
+      if (oldConcurrentId) await adjustBalance(editingEntry.staff_id, oldConcurrentId, -oldHours)
+      if (newConcurrentId) await adjustBalance(editingEntry.staff_id, newConcurrentId, +newHours)
+    } else if (newConcurrentId) {
+      await adjustBalance(editingEntry.staff_id, newConcurrentId, newHours - oldHours)
+    }
+
     // Merge back, keeping .staff enrichment
     const updated = { ...data[0], staff: editingEntry.staff }
     setEntries(prev => prev.map(e => e.id === updated.id ? updated : e))
     setShowEditModal(false)
     setEditingEntry(null)
-    showNotif('Entry updated. Note: balances are not auto-adjusted — update them in Leave Tracker if the amount changed.')
+    showNotif('Entry updated and balances adjusted.')
   }
 
   // ── DELETE with balance + protected period reversal ──
@@ -193,8 +233,7 @@ export default function LeaveEntries() {
       return
     }
 
-    // 1. Reverse leave_balances.used — fetch FRESH from DB to guarantee accuracy
-    //    (never rely on state array, which may be stale or missing the row)
+    // 1. Reverse leave_balances.used for primary type — fetch FRESH from DB
     const { data: freshBalance } = await supabase
       .from('leave_balances')
       .select('*')
@@ -208,7 +247,6 @@ export default function LeaveEntries() {
       const balUnit    = freshBalance.tracking_unit || deletingEntry.tracking_unit
       const reverseAmt = toUnit(entryHours, balUnit)
       const newUsed    = Math.max(0, parseFloat(freshBalance.used) - reverseAmt)
-
       const { data: updatedBal } = await supabase
         .from('leave_balances')
         .update({ used: +newUsed.toFixed(2) })
@@ -216,6 +254,32 @@ export default function LeaveEntries() {
         .select()
       if (updatedBal) {
         setLeaveBalances(prev => prev.map(b => b.id === freshBalance.id ? updatedBal[0] : b))
+      }
+    }
+
+    // 1b. Also reverse concurrent leave type balance (if set)
+    if (deletingEntry.concurrent_leave_type_id) {
+      const { data: freshConcBalance } = await supabase
+        .from('leave_balances')
+        .select('*')
+        .eq('staff_id', deletingEntry.staff_id)
+        .eq('leave_type_id', deletingEntry.concurrent_leave_type_id)
+        .eq('school_year', schoolYear)
+        .maybeSingle()
+
+      if (freshConcBalance) {
+        const entryHours = toHours(deletingEntry.amount, deletingEntry.tracking_unit)
+        const balUnit    = freshConcBalance.tracking_unit || deletingEntry.tracking_unit
+        const reverseAmt = toUnit(entryHours, balUnit)
+        const newUsed    = Math.max(0, parseFloat(freshConcBalance.used) - reverseAmt)
+        const { data: updatedBal } = await supabase
+          .from('leave_balances')
+          .update({ used: +newUsed.toFixed(2) })
+          .eq('id', freshConcBalance.id)
+          .select()
+        if (updatedBal) {
+          setLeaveBalances(prev => prev.map(b => b.id === freshConcBalance.id ? updatedBal[0] : b))
+        }
       }
     }
 
