@@ -16,6 +16,9 @@ function LeaveTracker() {
   const [showEntryModal, setShowEntryModal] = useState(false)
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [isCopyMode, setIsCopyMode] = useState(false)
+  const [entryMode, setEntryMode] = useState('range') // 'range' | 'pick'
+  const [calendarMonth, setCalendarMonth] = useState(new Date())
+  const [pickedDays, setPickedDays] = useState({}) // { 'YYYY-MM-DD': amount }
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [schoolYear] = useState('2025-2026')
@@ -47,6 +50,7 @@ function LeaveTracker() {
       .select('*')
       .eq('tenant_id', profile.tenant_id)
       .in('role', ['licensed_staff', 'classified_staff'])
+      .eq('is_active', true)
       .order('full_name')
 
     // Fetch leave types
@@ -168,19 +172,7 @@ function LeaveTracker() {
     }
 
     setLeaveEntries(prev => [data[0], ...prev])
-    setShowEntryModal(false)
-    setIsCopyMode(false)
-    setNewEntry({
-      staff_id: '',
-      leave_type_id: '',
-      start_date: '',
-      end_date: '',
-      amount: '',
-      tracking_unit: 'days',
-      concurrent_leave_type_id: '',
-      reason: '',
-      documentation_on_file: false
-    })
+    resetModal()
   }
 
   // Delete a leave entry
@@ -248,6 +240,128 @@ function LeaveTracker() {
     setShowEntryModal(true)
   }
 
+  // ── Calendar / Pick-Days helpers ─────────────────────────────────────────
+
+  const getCalendarDays = (monthDate) => {
+    const year = monthDate.getFullYear()
+    const month = monthDate.getMonth()
+    const firstDay = new Date(year, month, 1)
+    const lastDay = new Date(year, month + 1, 0)
+    // pad start so Mon=0 ... Sun=6 (ISO week)
+    const startPad = (firstDay.getDay() + 6) % 7
+    const days = []
+    for (let i = 0; i < startPad; i++) days.push(null)
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      days.push(new Date(year, month, d))
+    }
+    return days
+  }
+
+  const toISO = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
+  const isWeekend = (d) => d.getDay() === 0 || d.getDay() === 6
+
+  const togglePickedDay = (d) => {
+    const key = toISO(d)
+    setPickedDays(prev => {
+      if (prev[key] !== undefined) {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      }
+      // default amount = same as newEntry.amount if set, else 1
+      return { ...prev, [key]: newEntry.amount || 1 }
+    })
+  }
+
+  const updatePickedDayAmount = (key, val) => {
+    setPickedDays(prev => ({ ...prev, [key]: val }))
+  }
+
+  const resetModal = () => {
+    setShowEntryModal(false)
+    setIsCopyMode(false)
+    setEntryMode('range')
+    setPickedDays({})
+    setCalendarMonth(new Date())
+    setNewEntry({
+      staff_id: '',
+      leave_type_id: '',
+      start_date: '',
+      end_date: '',
+      amount: '',
+      tracking_unit: 'days',
+      concurrent_leave_type_id: '',
+      reason: '',
+      documentation_on_file: false
+    })
+  }
+
+  // Save one entry per picked day
+  const handleSavePickedDays = async () => {
+    const dayKeys = Object.keys(pickedDays).sort()
+    if (!newEntry.staff_id || !newEntry.leave_type_id || dayKeys.length === 0) {
+      alert('Please select a staff member, leave type, and at least one day.')
+      return
+    }
+    for (const key of dayKeys) {
+      if (!pickedDays[key] || parseFloat(pickedDays[key]) <= 0) {
+        alert(`Please enter a valid amount for ${key}.`)
+        return
+      }
+    }
+
+    const inserts = dayKeys.map(key => ({
+      tenant_id: profile.tenant_id,
+      staff_id: newEntry.staff_id,
+      leave_type_id: newEntry.leave_type_id,
+      school_year: schoolYear,
+      start_date: key,
+      end_date: key,
+      amount: parseFloat(pickedDays[key]),
+      tracking_unit: newEntry.tracking_unit,
+      concurrent_leave_type_id: newEntry.concurrent_leave_type_id || null,
+      reason: newEntry.reason || null,
+      documentation_on_file: newEntry.documentation_on_file,
+      entered_by: profile.id,
+    }))
+
+    const { data, error } = await supabase
+      .from('leave_entries')
+      .insert(inserts)
+      .select()
+
+    if (error) {
+      alert('Error saving entries: ' + error.message)
+      return
+    }
+
+    // Deduct total from balance
+    const totalAmount = dayKeys.reduce((sum, k) => sum + parseFloat(pickedDays[k]), 0)
+    const existingBalance = leaveBalances.find(
+      b => b.staff_id === newEntry.staff_id && b.leave_type_id === newEntry.leave_type_id && b.school_year === schoolYear
+    )
+    if (existingBalance) {
+      const newUsed = parseFloat(existingBalance.used) + totalAmount
+      const { data: updatedBalance } = await supabase
+        .from('leave_balances')
+        .update({ used: newUsed })
+        .eq('id', existingBalance.id)
+        .select()
+      if (updatedBalance) {
+        setLeaveBalances(prev => prev.map(b => b.id === existingBalance.id ? updatedBalance[0] : b))
+      }
+    }
+
+    if (data) setLeaveEntries(prev => [...data, ...prev])
+    resetModal()
+  }
+
   // Helper functions
   const getTypeName = (typeId) => leaveTypes.find(t => t.id === typeId)?.name || 'Unknown'
   const getTypeCategory = (typeId) => leaveTypes.find(t => t.id === typeId)?.category || ''
@@ -312,7 +426,6 @@ function LeaveTracker() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100">
-        <Navbar />
         <div className="flex items-center justify-center h-64">
           <p className="text-[#666666]">Loading leave data...</p>
         </div>
@@ -460,7 +573,7 @@ function LeaveTracker() {
                         <div className="flex flex-wrap gap-2">
                           {stateFederal.filter(b => parseFloat(b.balance.used) > 0).map(b => (
                             <span key={b.type.id} className={`text-xs px-2 py-0.5 rounded-full ${getCategoryColor(b.type.category)}`}>
-                              {b.type.name}: {b.balance.used} {b.policy?.tracking_unit || 'weeks'}
+                              {b.type.name}: {b.balance.used} {b.type.category !== 'school_provided' ? 'hrs' : (b.policy?.tracking_unit || 'days')}
                             </span>
                           ))}
                         </div>
@@ -650,7 +763,7 @@ function LeaveTracker() {
                 <h3 className="text-lg font-bold text-[#2c3e7e]">
                   {isCopyMode ? 'Repeat Leave Entry' : 'Log Leave Entry'}
                 </h3>
-                <button onClick={() => { setShowEntryModal(false); setIsCopyMode(false) }} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+                <button onClick={resetModal} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
               </div>
 
               {isCopyMode && (
@@ -714,43 +827,154 @@ function LeaveTracker() {
                   </select>
                 </div>
 
-                {/* Date Range */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-[#666666] mb-1">Start Date *</label>
-                    <input
-                      type="date"
-                      value={newEntry.start_date}
-                      onChange={(e) => setNewEntry(prev => ({ ...prev, start_date: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]"
-                    />
+                {/* Mode Toggle */}
+                {!isCopyMode && (
+                  <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
+                    <button
+                      onClick={() => { setEntryMode('range'); setPickedDays({}) }}
+                      className={`flex-1 py-1.5 text-sm rounded-md font-medium transition-colors ${entryMode === 'range' ? 'bg-white text-[#2c3e7e] shadow-sm' : 'text-[#666666] hover:text-[#2c3e7e]'}`}
+                    >
+                      Date Range
+                    </button>
+                    <button
+                      onClick={() => setEntryMode('pick')}
+                      className={`flex-1 py-1.5 text-sm rounded-md font-medium transition-colors ${entryMode === 'pick' ? 'bg-white text-[#2c3e7e] shadow-sm' : 'text-[#666666] hover:text-[#2c3e7e]'}`}
+                    >
+                      📅 Pick Days
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[#666666] mb-1">End Date *</label>
-                    <input
-                      type="date"
-                      value={newEntry.end_date}
-                      onChange={(e) => setNewEntry(prev => ({ ...prev, end_date: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]"
-                    />
-                  </div>
-                </div>
+                )}
 
-                {/* Amount */}
-                <div>
-                  <label className="block text-sm font-medium text-[#666666] mb-1">
-                    Amount ({newEntry.tracking_unit}) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    value={newEntry.amount}
-                    onChange={(e) => setNewEntry(prev => ({ ...prev, amount: e.target.value }))}
-                    placeholder={`Number of ${newEntry.tracking_unit}`}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]"
-                  />
-                </div>
+                {/* Date Range Mode */}
+                {(entryMode === 'range' || isCopyMode) && (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-[#666666] mb-1">Start Date *</label>
+                        <input
+                          type="date"
+                          value={newEntry.start_date}
+                          onChange={(e) => setNewEntry(prev => ({ ...prev, start_date: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-[#666666] mb-1">End Date *</label>
+                        <input
+                          type="date"
+                          value={newEntry.end_date}
+                          onChange={(e) => setNewEntry(prev => ({ ...prev, end_date: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-[#666666] mb-1">
+                        Amount ({newEntry.tracking_unit}) *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        value={newEntry.amount}
+                        onChange={(e) => setNewEntry(prev => ({ ...prev, amount: e.target.value }))}
+                        placeholder={`Number of ${newEntry.tracking_unit}`}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* Pick Days Mode — Calendar */}
+                {entryMode === 'pick' && !isCopyMode && (
+                  <div>
+                    {/* Month nav */}
+                    <div className="flex items-center justify-between mb-3">
+                      <button
+                        onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                        className="p-1.5 rounded hover:bg-gray-100 text-[#2c3e7e] font-bold"
+                      >‹</button>
+                      <span className="text-sm font-semibold text-[#2c3e7e]">
+                        {calendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                      </span>
+                      <button
+                        onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                        className="p-1.5 rounded hover:bg-gray-100 text-[#2c3e7e] font-bold"
+                      >›</button>
+                    </div>
+
+                    {/* Day headers Mon–Fri only */}
+                    <div className="grid grid-cols-7 mb-1">
+                      {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => (
+                        <div key={d} className={`text-center text-xs font-medium py-1 ${d === 'Sat' || d === 'Sun' ? 'text-gray-300' : 'text-[#666666]'}`}>{d}</div>
+                      ))}
+                    </div>
+
+                    {/* Calendar grid */}
+                    <div className="grid grid-cols-7 gap-0.5">
+                      {getCalendarDays(calendarMonth).map((day, i) => {
+                        if (!day) return <div key={`pad-${i}`} />
+                        const key = toISO(day)
+                        const weekend = isWeekend(day)
+                        const picked = pickedDays[key] !== undefined
+                        return (
+                          <button
+                            key={key}
+                            disabled={weekend}
+                            onClick={() => togglePickedDay(day)}
+                            className={`
+                              aspect-square flex items-center justify-center text-sm rounded-md font-medium transition-colors
+                              ${weekend ? 'text-gray-200 cursor-not-allowed' : ''}
+                              ${!weekend && picked ? 'bg-[#2c3e7e] text-white' : ''}
+                              ${!weekend && !picked ? 'hover:bg-blue-50 text-[#2c3e7e]' : ''}
+                            `}
+                          >
+                            {day.getDate()}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Per-day amount fields */}
+                    {Object.keys(pickedDays).length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        <p className="text-xs font-medium text-[#666666] uppercase tracking-wide">
+                          Amount per day ({newEntry.tracking_unit || 'days'})
+                        </p>
+                        {Object.keys(pickedDays).sort().map(key => {
+                          const d = new Date(key + 'T00:00:00')
+                          const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                          return (
+                            <div key={key} className="flex items-center gap-3">
+                              <span className="text-sm text-[#2c3e7e] w-32 shrink-0">{label}</span>
+                              <input
+                                type="number"
+                                step="0.5"
+                                min="0.5"
+                                value={pickedDays[key]}
+                                onChange={(e) => updatePickedDayAmount(key, e.target.value)}
+                                className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]"
+                              />
+                              <button
+                                onClick={() => togglePickedDay(new Date(key + 'T00:00:00'))}
+                                className="text-gray-400 hover:text-red-500 text-xs"
+                              >✕</button>
+                            </div>
+                          )
+                        })}
+                        <p className="text-xs text-[#666666] pt-1">
+                          Total: <span className="font-semibold text-[#2c3e7e]">
+                            {Object.values(pickedDays).reduce((s, v) => s + parseFloat(v || 0), 0)} {newEntry.tracking_unit || 'days'}
+                          </span> across {Object.keys(pickedDays).length} {Object.keys(pickedDays).length === 1 ? 'day' : 'days'}
+                        </p>
+                      </div>
+                    )}
+
+                    {Object.keys(pickedDays).length === 0 && (
+                      <p className="text-xs text-center text-[#666666] mt-3">Click weekdays to select leave days</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Concurrent Leave */}
                 <div>
@@ -795,16 +1019,16 @@ function LeaveTracker() {
               {/* Actions */}
               <div className="flex justify-end gap-3 mt-6">
                 <button
-                  onClick={() => { setShowEntryModal(false); setIsCopyMode(false) }}
+                  onClick={resetModal}
                   className="px-4 py-2 text-sm text-[#666666] border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleSaveEntry}
+                  onClick={entryMode === 'pick' && !isCopyMode ? handleSavePickedDays : handleSaveEntry}
                   className="px-4 py-2 text-sm bg-[#2c3e7e] text-white rounded-lg hover:bg-[#477fc1] transition-colors"
                 >
-                  {isCopyMode ? 'Save Repeated Entry' : 'Save Entry'}
+                  {isCopyMode ? 'Save Repeated Entry' : entryMode === 'pick' ? `Save ${Object.keys(pickedDays).length || ''} ${Object.keys(pickedDays).length === 1 ? 'Entry' : 'Entries'}`.trim() : 'Save Entry'}
                 </button>
               </div>
             </div>
@@ -833,7 +1057,13 @@ function LeaveTracker() {
                   const used = parseFloat(b.balance.used)
                   const remaining = Math.max(0, allocated - used)
                   const percent = getUsagePercent(used, allocated)
-                  const isWeeks = b.policy?.tracking_unit === 'weeks'
+                  const isProtected = b.type.category !== 'school_provided'
+                  const entitlement = isProtected ? 480 : allocated
+                  const displayUnit = isProtected ? 'hrs' : (b.policy?.tracking_unit || 'days')
+                  const displayUsed = isProtected ? (parseFloat(b.balance.used) * (b.policy?.tracking_unit === 'weeks' ? 40 : b.policy?.tracking_unit === 'days' ? 8 : 1)) : used
+                  const displayRemaining = isProtected ? Math.max(0, entitlement - displayUsed) : remaining
+                  const displayAllocated = isProtected ? entitlement : allocated
+                  const displayPercent = displayAllocated > 0 ? Math.min(100, (displayUsed / displayAllocated) * 100) : 0
 
                   return (
                     <div key={b.type.id} className="bg-gray-50 rounded-lg p-3">
@@ -845,19 +1075,19 @@ function LeaveTracker() {
                           </span>
                         </div>
                         <span className="text-sm font-medium text-[#2c3e7e]">
-                          {used} / {allocated} {isWeeks ? 'weeks' : 'days'} used
+                          {displayUsed} / {displayAllocated} {displayUnit} used
                         </span>
                       </div>
-                      {allocated > 0 && (
+                      {displayAllocated > 0 && (
                         <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
                           <div
-                            className={`h-2.5 rounded-full transition-all ${getBarColor(percent)}`}
-                            style={{ width: `${percent}%` }}
+                            className={`h-2.5 rounded-full transition-all ${getBarColor(displayPercent)}`}
+                            style={{ width: `${displayPercent}%` }}
                           />
                         </div>
                       )}
                       <div className="flex justify-between text-xs text-[#666666] mt-1">
-                        <span>{remaining} {isWeeks ? 'weeks' : 'days'} remaining</span>
+                        <span>{displayRemaining} {displayUnit} remaining</span>
                         {parseFloat(b.balance.carried_over) > 0 && (
                           <span>(includes {b.balance.carried_over} carried over)</span>
                         )}
