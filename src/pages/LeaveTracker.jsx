@@ -442,7 +442,7 @@ function LeaveTracker() {
                         const toHrs = (amt) => typeUnit === 'days' ? amt * 8 : typeUnit === 'weeks' ? amt * 40 : amt
                         const allocatedHrs = toHrs(parseFloat(b.balance.allocated) + parseFloat(b.balance.carried_over || 0))
                         const usedHrs = toHrs(parseFloat(b.balance.used))
-                       const remaining = Math.round((Math.max(0, allocatedHrs - usedHrs)) * 10) / 10                        
+                       const remainingHrs = Math.round((Math.max(0, allocatedHrs - usedHrs)) * 10) / 10                     
                       const percent = getUsagePercent(usedHrs, allocatedHrs)
 
                         return (
