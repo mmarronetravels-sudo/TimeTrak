@@ -27,7 +27,8 @@ function LeaveTracker() {
     tracking_unit: 'days',
     concurrent_leave_type_id: '',
     reason: '',
-    documentation_on_file: false
+    documentation_on_file: false,
+    is_birthing_parent: false,
   })
 
   useEffect(() => {
@@ -134,7 +135,8 @@ function LeaveTracker() {
       concurrent_leave_type_id: newEntry.concurrent_leave_type_id || null,
       reason: newEntry.reason || null,
       documentation_on_file: newEntry.documentation_on_file,
-      entered_by: profile.id
+      entered_by: profile.id,
+      is_birthing_parent: newEntry.is_birthing_parent || false,
     }
 
     const { data, error } = await supabase
@@ -192,7 +194,8 @@ function LeaveTracker() {
       tracking_unit: 'days',
       concurrent_leave_type_id: '',
       reason: '',
-      documentation_on_file: false
+      documentation_on_file: false,
+      is_birthing_parent: false,
     })
   }
 
@@ -769,7 +772,16 @@ function LeaveTracker() {
                       <option key={t.id} value={t.id}>{t.name}</option>
                     ))}
                   </select>
-                </div>
+                </div
+
+                  {leaveTypes.find(t => t.id === newEntry.leave_type_id)?.code === 'plo' && (
+  <div className="flex items-center gap-2">
+    <input type="checkbox" id="birthing" checked={newEntry.is_birthing_parent}
+      onChange={e => setNewEntry(prev => ({ ...prev, is_birthing_parent: e.target.checked }))}
+      className="rounded border-gray-300" />
+    <label htmlFor="birthing" className="text-sm text-[#666666]">Birthing parent claim (extends entitlement to 14 weeks / 560 hrs)</label>
+  </div>
+)}
 
                 {/* Reason */}
                 <div>
@@ -851,7 +863,11 @@ function LeaveTracker() {
                       }, 0)
                     // Entitlement: 480 hrs prorated by contract days
                     const contractDays = parseFloat(selectedStaff.contract_days) || 260
-                    const entitlementHrs = parseFloat((480 * Math.min(contractDays / 260, 1)).toFixed(1))
+                    const entitlementHrs = b.type.code === 'plo'
+  ? staffEntries.some(e => e.leave_type_id === b.type.id && e.is_birthing_parent)
+    ? 560
+    : 480
+  : 480
                     used = parseFloat(hrsUsed.toFixed(1))
                     allocated = entitlementHrs
                     unit = 'hrs'
