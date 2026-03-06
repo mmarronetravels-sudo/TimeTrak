@@ -32,6 +32,19 @@ export default function LeaveEntries() {
   const [saving, setSaving]     = useState(false)
   const [notification, setNotification] = useState(null)
 
+  // ── Copy / Repeat modal ──
+  const [showRepeatModal, setShowRepeatModal] = useState(false)
+  const [repeatEntry, setRepeatEntry]         = useState(null)
+  const [entryMode, setEntryMode]             = useState('range') // 'range' | 'pick'
+  const [calendarMonth, setCalendarMonth]     = useState(new Date())
+  const [pickedDays, setPickedDays]           = useState({})
+  const [repeatForm, setRepeatForm] = useState({
+    leave_type_id: '', start_date: '', end_date: '',
+    amount: '', tracking_unit: 'hours',
+    concurrent_leave_type_id: '', reason: '',
+    documentation_on_file: false,
+  })
+
   // ── Edit modal ──
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingEntry, setEditingEntry]   = useState(null)
@@ -81,7 +94,7 @@ export default function LeaveEntries() {
       const ids = [...new Set(raw.map(e => e.staff_id))]
       // Always select('*') — comma columns cause 400 errors
       const { data: staffData } = await supabase
-        .from('profiles').select('*').in('id', ids)
+        .from('profiles').select('*').in('id', ids).eq('is_active', true)
       const map = {}
       staffData?.forEach(s => { map[s.id] = s })
       setEntries(raw.map(e => ({ ...e, staff: map[e.staff_id] || null })))
@@ -164,52 +177,12 @@ export default function LeaveEntries() {
 
     if (error) { showNotif('Error saving: ' + error.message, 'error'); return }
 
-    // Adjust balances if amount or leave type changed
-    const oldHours = toHours(editingEntry.amount, editingEntry.tracking_unit)
-    const newHours = toHours(editForm.amount, editForm.tracking_unit)
-    const oldPrimaryId   = editingEntry.leave_type_id
-    const newPrimaryId   = editForm.leave_type_id
-    const oldConcurrentId = editingEntry.concurrent_leave_type_id || null
-    const newConcurrentId = editForm.concurrent_leave_type_id || null
-
-    // Helper: adjust a balance by delta hours (positive = add usage, negative = remove)
-    const adjustBalance = async (staffId, leaveTypeId, deltaHours) => {
-      if (!leaveTypeId || deltaHours === 0) return
-      const { data: bal } = await supabase
-        .from('leave_balances').select('*')
-        .eq('staff_id', staffId).eq('leave_type_id', leaveTypeId).eq('school_year', schoolYear)
-        .maybeSingle()
-      if (!bal) return
-      const balUnit = bal.tracking_unit || 'hours'
-      const deltaAmt = toUnit(deltaHours, balUnit)
-      const newUsed = Math.max(0, parseFloat(bal.used) + deltaAmt)
-      const { data: updatedBal } = await supabase
-        .from('leave_balances').update({ used: +newUsed.toFixed(2) }).eq('id', bal.id).select()
-      if (updatedBal) setLeaveBalances(prev => prev.map(b => b.id === bal.id ? updatedBal[0] : b))
-    }
-
-    // Primary type: if type changed, reverse old and add new; else just adjust delta
-    if (oldPrimaryId !== newPrimaryId) {
-      await adjustBalance(editingEntry.staff_id, oldPrimaryId, -oldHours)
-      await adjustBalance(editingEntry.staff_id, newPrimaryId, +newHours)
-    } else {
-      await adjustBalance(editingEntry.staff_id, newPrimaryId, newHours - oldHours)
-    }
-
-    // Concurrent type: if changed, reverse old and add new; else adjust delta
-    if (oldConcurrentId !== newConcurrentId) {
-      if (oldConcurrentId) await adjustBalance(editingEntry.staff_id, oldConcurrentId, -oldHours)
-      if (newConcurrentId) await adjustBalance(editingEntry.staff_id, newConcurrentId, +newHours)
-    } else if (newConcurrentId) {
-      await adjustBalance(editingEntry.staff_id, newConcurrentId, newHours - oldHours)
-    }
-
     // Merge back, keeping .staff enrichment
     const updated = { ...data[0], staff: editingEntry.staff }
     setEntries(prev => prev.map(e => e.id === updated.id ? updated : e))
     setShowEditModal(false)
     setEditingEntry(null)
-    showNotif('Entry updated and balances adjusted.')
+    showNotif('Entry updated. Note: balances are not auto-adjusted — update them in Leave Tracker if the amount changed.')
   }
 
   // ── DELETE with balance + protected period reversal ──
@@ -233,7 +206,8 @@ export default function LeaveEntries() {
       return
     }
 
-    // 1. Reverse leave_balances.used for primary type — fetch FRESH from DB
+    // 1. Reverse leave_balances.used — fetch FRESH from DB to guarantee accuracy
+    //    (never rely on state array, which may be stale or missing the row)
     const { data: freshBalance } = await supabase
       .from('leave_balances')
       .select('*')
@@ -247,6 +221,7 @@ export default function LeaveEntries() {
       const balUnit    = freshBalance.tracking_unit || deletingEntry.tracking_unit
       const reverseAmt = toUnit(entryHours, balUnit)
       const newUsed    = Math.max(0, parseFloat(freshBalance.used) - reverseAmt)
+
       const { data: updatedBal } = await supabase
         .from('leave_balances')
         .update({ used: +newUsed.toFixed(2) })
@@ -254,32 +229,6 @@ export default function LeaveEntries() {
         .select()
       if (updatedBal) {
         setLeaveBalances(prev => prev.map(b => b.id === freshBalance.id ? updatedBal[0] : b))
-      }
-    }
-
-    // 1b. Also reverse concurrent leave type balance (if set)
-    if (deletingEntry.concurrent_leave_type_id) {
-      const { data: freshConcBalance } = await supabase
-        .from('leave_balances')
-        .select('*')
-        .eq('staff_id', deletingEntry.staff_id)
-        .eq('leave_type_id', deletingEntry.concurrent_leave_type_id)
-        .eq('school_year', schoolYear)
-        .maybeSingle()
-
-      if (freshConcBalance) {
-        const entryHours = toHours(deletingEntry.amount, deletingEntry.tracking_unit)
-        const balUnit    = freshConcBalance.tracking_unit || deletingEntry.tracking_unit
-        const reverseAmt = toUnit(entryHours, balUnit)
-        const newUsed    = Math.max(0, parseFloat(freshConcBalance.used) - reverseAmt)
-        const { data: updatedBal } = await supabase
-          .from('leave_balances')
-          .update({ used: +newUsed.toFixed(2) })
-          .eq('id', freshConcBalance.id)
-          .select()
-        if (updatedBal) {
-          setLeaveBalances(prev => prev.map(b => b.id === freshConcBalance.id ? updatedBal[0] : b))
-        }
       }
     }
 
@@ -325,6 +274,136 @@ export default function LeaveEntries() {
     setShowDeleteModal(false)
     setDeletingEntry(null)
     showNotif('Entry deleted and balances adjusted.')
+  }
+
+  // ── Calendar / Pick-Days helpers ────────────────────────────────────────
+  const getCalendarDays = (monthDate) => {
+    const year = monthDate.getFullYear()
+    const month = monthDate.getMonth()
+    const firstDay = new Date(year, month, 1)
+    const lastDay  = new Date(year, month + 1, 0)
+    const startPad = (firstDay.getDay() + 6) % 7
+    const days = []
+    for (let i = 0; i < startPad; i++) days.push(null)
+    for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d))
+    return days
+  }
+
+  const toISO = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
+  const isWeekend = (d) => d.getDay() === 0 || d.getDay() === 6
+
+  const togglePickedDay = (d) => {
+    const key = toISO(d)
+    setPickedDays(prev => {
+      if (prev[key] !== undefined) { const n = { ...prev }; delete n[key]; return n }
+      return { ...prev, [key]: 8 }
+    })
+  }
+
+  const resetRepeatModal = () => {
+    setShowRepeatModal(false)
+    setRepeatEntry(null)
+    setEntryMode('range')
+    setPickedDays({})
+    setCalendarMonth(new Date())
+    setRepeatForm({
+      leave_type_id: '', start_date: '', end_date: '',
+      amount: '', tracking_unit: 'hours',
+      concurrent_leave_type_id: '', reason: '',
+      documentation_on_file: false,
+    })
+  }
+
+  // ── Open Repeat modal pre-filled from source entry ────────────────────
+  const openRepeat = (entry) => {
+    setRepeatEntry(entry)
+    setRepeatForm({
+      leave_type_id:            entry.leave_type_id || '',
+      start_date:               '',
+      end_date:                 '',
+      amount:                   entry.amount?.toString() || '',
+      tracking_unit:            entry.tracking_unit || 'hours',
+      concurrent_leave_type_id: entry.concurrent_leave_type_id || '',
+      reason:                   entry.reason || '',
+      documentation_on_file:    entry.documentation_on_file || false,
+    })
+    setEntryMode('range')
+    setPickedDays({})
+    setShowRepeatModal(true)
+  }
+
+  // ── Save repeated entry (date range mode) ────────────────────────────
+  const handleSaveRepeat = async () => {
+    if (!repeatForm.leave_type_id || !repeatForm.start_date || !repeatForm.amount) {
+      showNotif('Leave type, start date, and amount are required.', 'error'); return
+    }
+    setSaving(true)
+    const entryData = {
+      tenant_id:                repeatEntry.tenant_id,
+      staff_id:                 repeatEntry.staff_id,
+      leave_type_id:            repeatForm.leave_type_id,
+      school_year:              schoolYear,
+      start_date:               repeatForm.start_date,
+      end_date:                 repeatForm.end_date || repeatForm.start_date,
+      amount:                   parseFloat(repeatForm.amount),
+      tracking_unit:            repeatForm.tracking_unit,
+      concurrent_leave_type_id: repeatForm.concurrent_leave_type_id || null,
+      reason:                   repeatForm.reason || null,
+      documentation_on_file:    repeatForm.documentation_on_file,
+      logged_by:                profile.id,
+    }
+    const { data, error } = await supabase.from('leave_entries').insert([entryData]).select()
+    setSaving(false)
+    if (error) { showNotif('Error saving: ' + error.message, 'error'); return }
+    if (data?.[0]) {
+      const enriched = { ...data[0], staff: repeatEntry.staff }
+      setEntries(prev => [enriched, ...prev])
+    }
+    resetRepeatModal()
+    showNotif('Repeated entry saved.')
+  }
+
+  // ── Save picked days (one entry per day) ─────────────────────────────
+  const handleSavePickedDays = async () => {
+    const dayKeys = Object.keys(pickedDays).sort()
+    if (!repeatForm.leave_type_id || dayKeys.length === 0) {
+      showNotif('Select a leave type and at least one day.', 'error'); return
+    }
+    for (const key of dayKeys) {
+      if (!pickedDays[key] || parseFloat(pickedDays[key]) <= 0) {
+        showNotif(`Enter a valid amount for ${key}.`, 'error'); return
+      }
+    }
+    setSaving(true)
+    const inserts = dayKeys.map(key => ({
+      tenant_id:                repeatEntry.tenant_id,
+      staff_id:                 repeatEntry.staff_id,
+      leave_type_id:            repeatForm.leave_type_id,
+      school_year:              schoolYear,
+      start_date:               key,
+      end_date:                 key,
+      amount:                   parseFloat(pickedDays[key]),
+      tracking_unit:            'hours',
+      concurrent_leave_type_id: repeatForm.concurrent_leave_type_id || null,
+      reason:                   repeatForm.reason || null,
+      documentation_on_file:    repeatForm.documentation_on_file,
+      logged_by:                profile.id,
+    }))
+    const { data, error } = await supabase.from('leave_entries').insert(inserts).select()
+    setSaving(false)
+    if (error) { showNotif('Error saving: ' + error.message, 'error'); return }
+    if (data) {
+      const enriched = data.map(e => ({ ...e, staff: repeatEntry.staff }))
+      setEntries(prev => [...enriched, ...prev])
+    }
+    resetRepeatModal()
+    showNotif(`${dayKeys.length} ${dayKeys.length === 1 ? 'entry' : 'entries'} saved.`)
   }
 
   // ── Render ──
@@ -423,6 +502,10 @@ export default function LeaveEntries() {
                       {entry.reason || <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3 text-sm whitespace-nowrap">
+                      <button onClick={() => openRepeat(entry)}
+                        className="text-green-600 hover:text-green-800 text-xs font-medium mr-3 transition-colors">
+                        Repeat
+                      </button>
                       <button onClick={() => openEdit(entry)}
                         className="text-[#477fc1] hover:text-[#2c3e7e] text-xs font-medium mr-3 transition-colors">
                         Edit
@@ -546,6 +629,202 @@ export default function LeaveEntries() {
                 <button onClick={handleSaveEdit} disabled={saving}
                   className="px-4 py-2 text-sm bg-[#2c3e7e] text-white rounded-lg hover:bg-[#477fc1] disabled:opacity-50 transition-colors">
                   {saving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── REPEAT MODAL ── */}
+      {showRepeatModal && repeatEntry && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-5">
+                <div>
+                  <h2 className="text-xl font-bold text-[#2c3e7e]">Repeat Leave Entry</h2>
+                  <p className="text-sm text-[#666666] mt-0.5">{repeatEntry.staff?.full_name}</p>
+                </div>
+                <button onClick={resetRepeatModal}
+                  className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+              </div>
+
+              {/* Info banner */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mb-4 text-xs text-blue-800">
+                All fields have been copied from the original entry. Update the dates and save.
+              </div>
+
+              {/* Mode toggle */}
+              <div className="flex gap-2 mb-5">
+                <button
+                  onClick={() => { setEntryMode('range'); setPickedDays({}) }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${entryMode === 'range' ? 'bg-[#2c3e7e] text-white border-[#2c3e7e]' : 'text-[#666666] border-gray-300 hover:bg-gray-50'}`}>
+                  Date Range
+                </button>
+                <button
+                  onClick={() => setEntryMode('pick')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${entryMode === 'pick' ? 'bg-[#2c3e7e] text-white border-[#2c3e7e]' : 'text-[#666666] border-gray-300 hover:bg-gray-50'}`}>
+                  📅 Pick Days
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Leave Type */}
+                <div>
+                  <label className="block text-sm font-medium text-[#666666] mb-1">Leave Type *</label>
+                  <select value={repeatForm.leave_type_id}
+                    onChange={e => setRepeatForm(p => ({ ...p, leave_type_id: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]">
+                    <option value="">Select leave type…</option>
+                    {leaveTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+
+                {entryMode === 'range' ? (
+                  /* ── Date Range fields ── */
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-[#666666] mb-1">Start Date *</label>
+                        <input type="date" value={repeatForm.start_date}
+                          onChange={e => setRepeatForm(p => ({ ...p, start_date: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-[#666666] mb-1">End Date</label>
+                        <input type="date" value={repeatForm.end_date}
+                          onChange={e => setRepeatForm(p => ({ ...p, end_date: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-[#666666] mb-1">Amount *</label>
+                        <input type="number" min="0" step="0.5" value={repeatForm.amount}
+                          onChange={e => setRepeatForm(p => ({ ...p, amount: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-[#666666] mb-1">Unit</label>
+                        <select value={repeatForm.tracking_unit}
+                          onChange={e => setRepeatForm(p => ({ ...p, tracking_unit: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]">
+                          <option value="hours">Hours</option>
+                          <option value="days">Days</option>
+                          <option value="weeks">Weeks</option>
+                        </select>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* ── Pick Days calendar ── */
+                  <div>
+                    {/* Month nav */}
+                    <div className="flex items-center justify-between mb-2">
+                      <button onClick={() => setCalendarMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+                        className="px-2 py-1 text-sm text-[#666666] hover:text-[#2c3e7e]">&#8249;</button>
+                      <span className="text-sm font-medium text-[#2c3e7e]">
+                        {calendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                      </span>
+                      <button onClick={() => setCalendarMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+                        className="px-2 py-1 text-sm text-[#666666] hover:text-[#2c3e7e]">&#8250;</button>
+                    </div>
+                    {/* Day headers */}
+                    <div className="grid grid-cols-7 mb-1">
+                      {['Mo','Tu','We','Th','Fr','Sa','Su'].map(d => (
+                        <div key={d} className="text-center text-xs text-[#666666] font-medium py-1">{d}</div>
+                      ))}
+                    </div>
+                    {/* Calendar grid */}
+                    <div className="grid grid-cols-7 gap-1">
+                      {getCalendarDays(calendarMonth).map((day, i) => {
+                        if (!day) return <div key={`pad-${i}`} />
+                        const key = toISO(day)
+                        const weekend = isWeekend(day)
+                        const picked  = pickedDays[key] !== undefined
+                        return (
+                          <button key={key}
+                            disabled={weekend}
+                            onClick={() => togglePickedDay(day)}
+                            className={`rounded-lg py-1.5 text-xs font-medium transition-colors ${
+                              weekend ? 'text-gray-300 cursor-not-allowed' :
+                              picked  ? 'bg-[#2c3e7e] text-white' :
+                              'hover:bg-blue-50 text-[#333333]'
+                            }`}>
+                            {day.getDate()}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {/* Per-day amount inputs */}
+                    {Object.keys(pickedDays).length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        <div className="text-xs font-medium text-[#666666] mb-1">Hours per day:</div>
+                        {Object.keys(pickedDays).sort().map(key => (
+                          <div key={key} className="flex items-center gap-2">
+                            <span className="text-xs text-[#666666] w-24">
+                              {new Date(key + 'T00:00:00').toLocaleDateString('default', { weekday: 'short', month: 'short', day: 'numeric' })}
+                            </span>
+                            <input type="number" min="0.5" max="12" step="0.5"
+                              value={pickedDays[key]}
+                              onChange={e => setPickedDays(prev => ({ ...prev, [key]: e.target.value }))}
+                              className="w-20 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#477fc1]" />
+                            <span className="text-xs text-[#666666]">hrs</span>
+                          </div>
+                        ))}
+                        <div className="text-xs text-[#2c3e7e] font-medium pt-1">
+                          Total: {Object.values(pickedDays).reduce((s, v) => s + (parseFloat(v) || 0), 0)} hrs across {Object.keys(pickedDays).length} {Object.keys(pickedDays).length === 1 ? 'day' : 'days'}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Concurrent Leave */}
+                <div>
+                  <label className="block text-sm font-medium text-[#666666] mb-1">Concurrent Leave (optional)</label>
+                  <select value={repeatForm.concurrent_leave_type_id}
+                    onChange={e => setRepeatForm(p => ({ ...p, concurrent_leave_type_id: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]">
+                    <option value="">None</option>
+                    {leaveTypes.filter(t => t.id !== repeatForm.leave_type_id)
+                      .map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+
+                {/* Reason */}
+                <div>
+                  <label className="block text-sm font-medium text-[#666666] mb-1">Notes / Reason (optional)</label>
+                  <textarea rows={2} value={repeatForm.reason}
+                    onChange={e => setRepeatForm(p => ({ ...p, reason: e.target.value }))}
+                    placeholder="Optional notes…"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]" />
+                </div>
+
+                {/* Documentation */}
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="repeat-docs"
+                    checked={repeatForm.documentation_on_file}
+                    onChange={e => setRepeatForm(p => ({ ...p, documentation_on_file: e.target.checked }))}
+                    className="rounded border-gray-300" />
+                  <label htmlFor="repeat-docs" className="text-sm text-[#666666]">Documentation on file</label>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+                <button onClick={resetRepeatModal}
+                  className="px-4 py-2 text-sm text-[#666666] border border-gray-300 rounded-lg hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button
+                  onClick={entryMode === 'pick' ? handleSavePickedDays : handleSaveRepeat}
+                  disabled={saving}
+                  className="px-4 py-2 text-sm bg-[#2c3e7e] text-white rounded-lg hover:bg-[#477fc1] disabled:opacity-50 transition-colors">
+                  {saving ? 'Saving…' :
+                    entryMode === 'pick'
+                      ? `Save ${Object.keys(pickedDays).length || ''} ${Object.keys(pickedDays).length === 1 ? 'Entry' : 'Entries'}`
+                      : 'Save Repeated Entry'}
                 </button>
               </div>
             </div>
