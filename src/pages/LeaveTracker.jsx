@@ -772,7 +772,7 @@ function LeaveTracker() {
                       <option key={t.id} value={t.id}>{t.name}</option>
                     ))}
                   </select>
-                </div
+                </div>
 
                   {leaveTypes.find(t => t.id === newEntry.leave_type_id)?.code === 'plo' && (
   <div className="flex items-center gap-2">
