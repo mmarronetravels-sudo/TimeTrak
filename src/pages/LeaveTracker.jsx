@@ -855,7 +855,7 @@ function LeaveTracker() {
                     used = parseFloat(hrsUsed.toFixed(1))
                     allocated = entitlementHrs
                     unit = 'hrs'
-                    remaining = Math.max(0, allocated - used)
+                    remaining = Math.round((Math.max(0, allocated - used)) * 10) / 10
                     percent = getUsagePercent(used, allocated)
                   } else {
                     const typeUnit = b.type.tracking_unit || 'days'
@@ -865,7 +865,7 @@ function LeaveTracker() {
                     const toHrs = (amt) => typeUnit === 'days' ? amt * 8 : typeUnit === 'weeks' ? amt * 40 : amt
                     allocated = toHrs(rawAllocated)
                     used = toHrs(rawUsed)
-                    remaining = Math.max(0, allocated - used)
+                    remaining = Math.round((Math.max(0, allocated - used)) * 10) / 10
                     percent = getUsagePercent(used, allocated)
                     unit = 'hrs'
                   }
