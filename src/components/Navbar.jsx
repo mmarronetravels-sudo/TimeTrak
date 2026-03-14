@@ -56,9 +56,9 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-14">
           {/* Logo */}
           <Link to="/dashboard" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm" style={{ background: C.orange }}>TT</div>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm" style={{ background: C.orange }}>LT</div>
             <div>
-              <span className="text-white font-bold text-lg tracking-tight">TimeTrak</span>
+              <span className="text-white font-bold text-lg tracking-tight">LeaveTrak</span>
               <span className="text-blue-200 text-xs ml-2 hidden sm:inline">ScholarPath Systems</span>
             </div>
           </Link>

@@ -35,8 +35,8 @@ export default function Login() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-lg" style={{ background: C.orange }}>TT</div>
-            <span className="text-3xl font-bold" style={{ color: C.navy }}>TimeTrak</span>
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-lg" style={{ background: C.orange }}>LT</div>
+            <span className="text-3xl font-bold" style={{ color: C.navy }}>LeaveTrak</span>
           </div>
           <p className="text-gray-500 text-sm">ScholarPath Systems</p>
         </div>
