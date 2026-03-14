@@ -15,7 +15,7 @@ export default function ProtectedRoute({ children, roles }) {
   if (!user) return <Navigate to="/login" />;
   if (!profile) return <Navigate to="/login" />;
 
-  if (roles && !roles.includes(profile.role)) {
+  if (roles && !roles.includes(profile.timetrak_role)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">

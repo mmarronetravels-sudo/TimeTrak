@@ -1,16 +1,30 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
 const C = { navy: '#2c3e7e', blue: '#477fc1', green: '#16a34a' };
+
+// Protected leave codes that require qualifying reason/relationship
+const PROTECTED_CODES = ['fmla', 'ofla', 'plo'];
 
 export default function MyLeave() {
   const { profile } = useAuth();
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [requests, setRequests] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ leave_type_id: '', start_date: '', end_date: '', total_hours: '', reason: '' });
+  const [form, setForm] = useState({
+    leave_type_id: '',
+    start_date: '',
+    end_date: '',
+    total_hours: '',
+    reason: '',
+    qualifying_reason: '',
+    qualifying_relationship: '',
+    relationship_name: '',
+  });
   const [notification, setNotification] = useState(null);
+  const [qualifyingReasons, setQualifyingReasons] = useState([]);
+  const [qualifyingRelationships, setQualifyingRelationships] = useState([]);
 
   useEffect(() => { loadData(); }, [profile]);
 
@@ -26,11 +40,58 @@ export default function MyLeave() {
       .eq('staff_id', profile.id)
       .order('created_at', { ascending: false });
     if (reqs) setRequests(reqs);
+
+    // Load qualifying reasons and relationships
+    const { data: qr } = await supabase
+      .from('leave_qualifying_reasons')
+      .select('*')
+      .eq('tenant_id', profile.tenant_id)
+      .order('sort_order');
+    if (qr) setQualifyingReasons(qr);
+
+    const { data: qrel } = await supabase
+      .from('leave_qualifying_relationships')
+      .select('*')
+      .eq('tenant_id', profile.tenant_id)
+      .order('sort_order');
+    if (qrel) setQualifyingRelationships(qrel);
+  };
+
+  // Determine if the selected leave type is protected
+  const selectedLeaveType = useMemo(() => {
+    return leaveTypes.find(t => t.id === form.leave_type_id);
+  }, [leaveTypes, form.leave_type_id]);
+
+  const isProtectedLeave = useMemo(() => {
+    return selectedLeaveType && PROTECTED_CODES.includes(selectedLeaveType.code);
+  }, [selectedLeaveType]);
+
+  // Filter reasons and relationships for the selected leave type
+  const filteredReasons = useMemo(() => {
+    if (!selectedLeaveType) return [];
+    return qualifyingReasons.filter(r => r.leave_type_code === selectedLeaveType.code);
+  }, [qualifyingReasons, selectedLeaveType]);
+
+  const filteredRelationships = useMemo(() => {
+    if (!selectedLeaveType) return [];
+    return qualifyingRelationships.filter(r => r.leave_type_code === selectedLeaveType.code);
+  }, [qualifyingRelationships, selectedLeaveType]);
+
+  // Reset qualifying fields when leave type changes
+  const handleLeaveTypeChange = (value) => {
+    setForm(p => ({
+      ...p,
+      leave_type_id: value,
+      qualifying_reason: '',
+      qualifying_relationship: '',
+      relationship_name: '',
+    }));
   };
 
   const submitRequest = async () => {
     if (!form.leave_type_id || !form.start_date || !form.total_hours) return;
-    const { error } = await supabase.from('leave_requests').insert({
+
+    const insertData = {
       tenant_id: profile.tenant_id,
       staff_id: profile.id,
       leave_type_id: form.leave_type_id,
@@ -39,7 +100,16 @@ export default function MyLeave() {
       total_hours: parseFloat(form.total_hours),
       reason: form.reason,
       status: 'pending',
-    });
+    };
+
+    // Add qualifying fields if this is protected leave
+    if (isProtectedLeave) {
+      if (form.qualifying_reason) insertData.qualifying_reason = form.qualifying_reason;
+      if (form.qualifying_relationship) insertData.qualifying_relationship = form.qualifying_relationship;
+      if (form.relationship_name) insertData.relationship_name = form.relationship_name;
+    }
+
+    const { error } = await supabase.from('leave_requests').insert(insertData);
     if (!error) {
       // Notify supervisor
       if (profile.supervisor_id) {
@@ -53,7 +123,7 @@ export default function MyLeave() {
         });
       }
       setShowModal(false);
-      setForm({ leave_type_id: '', start_date: '', end_date: '', total_hours: '', reason: '' });
+      setForm({ leave_type_id: '', start_date: '', end_date: '', total_hours: '', reason: '', qualifying_reason: '', qualifying_relationship: '', relationship_name: '' });
       showNotif('Leave request submitted!');
       loadData();
     }
@@ -65,6 +135,12 @@ export default function MyLeave() {
     denied: 'bg-red-100 text-red-700',
     cancelled: 'bg-gray-100 text-gray-600',
   };
+
+  // Display helpers for qualifying info in table
+  const reasonDisplayMap = {};
+  qualifyingReasons.forEach(r => { reasonDisplayMap[r.qualifying_reason] = r.display_name; });
+  const relationshipDisplayMap = {};
+  qualifyingRelationships.forEach(r => { relationshipDisplayMap[r.qualifying_relationship] = r.display_name; });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
@@ -87,29 +163,46 @@ export default function MyLeave() {
         <table className="min-w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              {['Type', 'Dates', 'Hours', 'Reason', 'Status', 'Submitted', 'Reviewed By'].map(h => (
+              {['Type', 'Dates', 'Hours', 'Reason', 'Qualifying Info', 'Status', 'Submitted'].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {requests.map(r => (
-              <tr key={r.id} className="hover:bg-gray-50/50 transition-colors">
-                <td className="px-4 py-3">
-                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">{r.leave_types?.name || '—'}</span>
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-600">
-                  {r.start_date === r.end_date ? r.start_date : `${r.start_date} → ${r.end_date}`}
-                </td>
-                <td className="px-4 py-3 text-sm font-medium text-gray-800">{r.total_hours}h</td>
-                <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">{r.reason || '—'}</td>
-                <td className="px-4 py-3">
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${statusStyles[r.status]}`}>{r.status}</span>
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-400">{new Date(r.created_at).toLocaleDateString()}</td>
-                <td className="px-4 py-3 text-sm text-gray-500">{r.reviewed_by_name || '—'}</td>
-              </tr>
-            ))}
+            {requests.map(r => {
+              const isProtected = r.leave_types && PROTECTED_CODES.includes(r.leave_types.code);
+              return (
+                <tr key={r.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="px-4 py-3">
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">{r.leave_types?.name || '—'}</span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-600">
+                    {r.start_date === r.end_date ? r.start_date : `${r.start_date} → ${r.end_date}`}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-800">{r.total_hours}h</td>
+                  <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">{r.reason || '—'}</td>
+                  <td className="px-4 py-3 text-sm">
+                    {isProtected && r.qualifying_reason ? (
+                      <div>
+                        <div className="text-xs font-medium text-gray-700">{reasonDisplayMap[r.qualifying_reason] || r.qualifying_reason}</div>
+                        {r.qualifying_relationship && (
+                          <div className="text-xs text-gray-500">{relationshipDisplayMap[r.qualifying_relationship] || r.qualifying_relationship}</div>
+                        )}
+                        {r.relationship_name && (
+                          <div className="text-xs text-gray-400 italic">{r.relationship_name}</div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${statusStyles[r.status]}`}>{r.status}</span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-400">{new Date(r.created_at).toLocaleDateString()}</td>
+                </tr>
+              );
+            })}
             {requests.length === 0 && (
               <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">No leave requests yet</td></tr>
             )}
@@ -120,7 +213,7 @@ export default function MyLeave() {
       {/* Request Leave Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-5 border-b border-gray-100">
               <h3 className="text-xl font-bold" style={{ color: C.navy }}>Request Leave</h3>
               <p className="text-sm text-gray-500 mt-0.5">{profile?.full_name} · {profile?.position}</p>
@@ -128,11 +221,64 @@ export default function MyLeave() {
             <div className="px-6 py-5 space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Leave Type</label>
-                <select value={form.leave_type_id} onChange={e => setForm(p => ({ ...p, leave_type_id: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]">
+                <select value={form.leave_type_id} onChange={e => handleLeaveTypeChange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]">
                   <option value="">Select leave type...</option>
                   {leaveTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
+
+              {/* Qualifying Reason & Relationship — only for protected leave */}
+              {isProtectedLeave && (
+                <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold text-blue-800">⚖️ {selectedLeaveType?.name} — Qualifying Information</span>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-blue-700 mb-1">Qualifying Reason</label>
+                    <select
+                      value={form.qualifying_reason}
+                      onChange={e => setForm(p => ({ ...p, qualifying_reason: e.target.value }))}
+                      className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    >
+                      <option value="">Select reason...</option>
+                      {filteredReasons.map(r => (
+                        <option key={r.qualifying_reason} value={r.qualifying_reason}>{r.display_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-blue-700 mb-1">Relationship</label>
+                    <select
+                      value={form.qualifying_relationship}
+                      onChange={e => setForm(p => ({ ...p, qualifying_relationship: e.target.value }))}
+                      className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    >
+                      <option value="">Select relationship...</option>
+                      {filteredRelationships.map(r => (
+                        <option key={r.qualifying_relationship} value={r.qualifying_relationship}>{r.display_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {form.qualifying_relationship && form.qualifying_relationship !== 'self' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-blue-700 mb-1">Family Member Name (optional)</label>
+                      <input
+                        type="text"
+                        value={form.relationship_name}
+                        onChange={e => setForm(p => ({ ...p, relationship_name: e.target.value }))}
+                        placeholder="e.g. Maria Santos — Mother"
+                        className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      />
+                    </div>
+                  )}
+                  {selectedLeaveType?.code === 'ofla' && form.qualifying_relationship === 'affinity' && (
+                    <p className="text-xs text-blue-600 italic">
+                      Oregon law allows leave for any person related by affinity whose close association is equivalent to a family relationship. Your employer may request a written attestation.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Start Date</label>
