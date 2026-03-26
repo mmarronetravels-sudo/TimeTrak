@@ -138,20 +138,22 @@ function UserMenu({ profile, onSignOut, onSwitchToStaffTrak }) {
             </div>
           </div>
 
-          {/* Switch to StaffTrak */}
-          <a
-            href="https://stafftrak.scholarpathsystems.org"
-            onClick={(e) => { setOpen(false); onSwitchToStaffTrak(e); }}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-              fontSize: 13, fontWeight: 500, color: C.orange, textDecoration: 'none',
-              borderBottom: '1px solid #f0f1f3', transition: 'background 0.1s' }}
-            onMouseEnter={e => e.currentTarget.style.background = '#fff7f0'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-          >
-            <span>🔀</span>
-            <span>Switch to StaffTrak</span>
-            <span style={{ marginLeft: 'auto', opacity: 0.4, fontSize: 12 }}>→</span>
-          </a>
+          {/* Switch to StaffTrak (only shown when bundled) */}
+          {onSwitchToStaffTrak && (
+            <a
+              href={import.meta.env.VITE_STAFFTRAK_URL || '#'}
+              onClick={(e) => { setOpen(false); onSwitchToStaffTrak(e); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                fontSize: 13, fontWeight: 500, color: C.orange, textDecoration: 'none',
+                borderBottom: '1px solid #f0f1f3', transition: 'background 0.1s' }}
+              onMouseEnter={e => e.currentTarget.style.background = '#fff7f0'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <span>🔀</span>
+              <span>Switch to StaffTrak</span>
+              <span style={{ marginLeft: 'auto', opacity: 0.4, fontSize: 12 }}>→</span>
+            </a>
+          )}
 
           {/* Sign out */}
           <button
@@ -184,12 +186,15 @@ export default function Navbar() {
 
   const handleSignOut = async () => { await signOut(); navigate('/login'); };
 
+  const staffTrakUrl = import.meta.env.VITE_STAFFTRAK_URL;
+
   const handleSwitchToStaffTrak = async (e) => {
     e.preventDefault();
+    if (!staffTrakUrl) return;
     const { data: { session } } = await supabase.auth.getSession();
     window.location.href = session
-      ? `https://stafftrak.scholarpathsystems.org/dashboard?token=${session.access_token}&refresh=${session.refresh_token}`
-      : 'https://stafftrak.scholarpathsystems.org';
+      ? `${staffTrakUrl}/dashboard?token=${session.access_token}&refresh=${session.refresh_token}`
+      : staffTrakUrl;
   };
 
   const isActive = (path) => location.pathname === path;
@@ -285,7 +290,7 @@ export default function Navbar() {
           {/* Right: user menu + mobile hamburger */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div className="hidden lg:block">
-              <UserMenu profile={profile} onSignOut={handleSignOut} onSwitchToStaffTrak={handleSwitchToStaffTrak} />
+              <UserMenu profile={profile} onSignOut={handleSignOut} onSwitchToStaffTrak={staffTrakUrl ? handleSwitchToStaffTrak : null} />
             </div>
             <button onClick={() => setMobileOpen(!mobileOpen)}
               className="lg:hidden p-2 rounded-md text-blue-200 hover:text-white hover:bg-white/10">
@@ -324,12 +329,14 @@ export default function Navbar() {
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', paddingLeft: 12, paddingBottom: 6 }}>
               {profile.full_name} · {profile.timetrak_role}
             </div>
-            <a href="https://stafftrak.scholarpathsystems.org"
-              onClick={(e) => { setMobileOpen(false); handleSwitchToStaffTrak(e); }}
-              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold transition-all"
-              style={{ color: C.orange, textDecoration: 'none' }}>
-              🔀 Switch to StaffTrak →
-            </a>
+            {staffTrakUrl && (
+              <a href={staffTrakUrl}
+                onClick={(e) => { setMobileOpen(false); handleSwitchToStaffTrak(e); }}
+                className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold transition-all"
+                style={{ color: C.orange, textDecoration: 'none' }}>
+                🔀 Switch to StaffTrak →
+              </a>
+            )}
             <button onClick={handleSignOut}
               className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-blue-200 hover:text-white hover:bg-white/10">
               🚪 Sign Out
