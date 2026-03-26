@@ -51,6 +51,7 @@ export default function Dashboard() {
       const { count: hrCount } = await supabase
         .from('timecards')
         .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', profile.tenant_id)
         .eq('status', 'supervisor_approved');
       setHrPending(hrCount || 0);
     }

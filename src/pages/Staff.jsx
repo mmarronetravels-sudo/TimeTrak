@@ -55,8 +55,9 @@ export default function Staff() {
 
   const fetchStaff = async () => {
     setLoading(true)
-    const { data, error } = await supabase.from('profiles').select('*').order('full_name')
-    if (error) console.error('Staff fetch error:', error)
+    const { data, error } = await supabase.from('profiles').select('*')
+      .eq('tenant_id', currentProfile.tenant_id).order('full_name')
+    if (error) console.error('Failed to load staff')
     if (data) {
       setStaff(data)
       setSupervisors(data.filter(p => ['admin','hr','supervisor'].includes(p.timetrak_role)))
@@ -104,7 +105,7 @@ export default function Staff() {
       default_schedule,
     }
     const { error } = await supabase.from('profiles').update(updates).eq('id', editingStaff.id)
-    if (error) { showToast('Error saving: '+error.message, 'error') }
+    if (error) { showToast('Error saving staff member. Please try again.', 'error') }
     else { showToast(`${form.full_name} updated`); await fetchStaff(); closeModal() }
     setSaving(false)
   }
@@ -131,7 +132,7 @@ export default function Staff() {
       is_active:     true,
       default_schedule,
     }])
-    if (error) { showToast('Error adding staff: '+error.message, 'error') }
+    if (error) { showToast('Error adding staff member. Please try again.', 'error') }
     else {
       showToast(`${form.full_name} added — create their auth account in Supabase to enable login`, 'info')
       await fetchStaff(); closeModal()
@@ -144,7 +145,7 @@ export default function Staff() {
     const newActive = !person.is_active
     const { error } = await supabase.from('profiles')
       .update({ is_active: newActive }).eq('id', person.id)
-    if (error) { showToast('Error: '+error.message, 'error') }
+    if (error) { showToast('Error updating staff status. Please try again.', 'error') }
     else {
       showToast(`${person.full_name} ${newActive ? 'restored' : 'archived'}`)
       await fetchStaff()
@@ -168,7 +169,7 @@ export default function Staff() {
       return
     }
     const { error } = await supabase.from('profiles').delete().eq('id', person.id)
-    if (error) { showToast('Error deleting: '+error.message, 'error') }
+    if (error) { showToast('Error deleting staff member. Please try again.', 'error') }
     else { showToast(`${person.full_name} deleted`); await fetchStaff() }
     setConfirm(null)
   }

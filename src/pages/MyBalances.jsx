@@ -18,7 +18,7 @@ export default function MyBalances() {
   useEffect(() => { if (profile) loadData(); }, [profile]);
 
   const loadData = async () => {
-    const { data: lt } = await supabase.from('leave_types').select('*').order('sort_order');
+    const { data: lt } = await supabase.from('leave_types').select('*').eq('tenant_id', profile.tenant_id).order('sort_order');
     if (lt) setLeaveTypes(lt);
 
     const { data: bal } = await supabase

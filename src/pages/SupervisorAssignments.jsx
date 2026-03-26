@@ -11,12 +11,13 @@ export default function SupervisorAssignments() {
   const [editing, setEditing] = useState(null);
   const [notification, setNotification] = useState(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { if (profile) loadData(); }, [profile]);
 
   const showNotif = (msg) => { setNotification(msg); setTimeout(() => setNotification(null), 3000); };
 
   const loadData = async () => {
-    const { data: all } = await supabase.from('profiles').select('*').eq('is_active', true).order('full_name');
+    const { data: all } = await supabase.from('profiles').select('*')
+      .eq('tenant_id', profile.tenant_id).eq('is_active', true).order('full_name');
     if (all) {
       setStaff(all.filter(p => p.role === 'staff'));
       setSupervisors(all.filter(p => ['supervisor', 'admin'].includes(p.role)));

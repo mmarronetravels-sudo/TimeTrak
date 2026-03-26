@@ -38,6 +38,7 @@ export default function HRTimecards() {
     let query = supabase
       .from('timecards')
       .select('*, profiles!timecards_staff_id_fkey(full_name, position, building, supervisor_id)')
+      .eq('tenant_id', profile.tenant_id)
       .order('week_start', { ascending: false });
 
     if (filterStatus !== 'all') query = query.eq('status', filterStatus);

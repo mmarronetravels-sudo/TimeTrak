@@ -6,13 +6,14 @@ export default function AuthCallback() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         navigate('/reset-password');
       } else if (event === 'SIGNED_IN') {
         navigate('/dashboard');
       }
     });
+    return () => subscription.unsubscribe();
   }, [navigate]);
 
   return (

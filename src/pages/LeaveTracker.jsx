@@ -126,6 +126,8 @@ function LeaveTracker() {
       alert('Please fill in all required fields.')
       return
     }
+    if (parseFloat(newEntry.amount) <= 0) { alert('Amount must be greater than zero.'); return }
+    if (newEntry.end_date < newEntry.start_date) { alert('End date cannot be before start date.'); return }
 
     const entryData = {
       tenant_id: profile.tenant_id,
@@ -148,7 +150,7 @@ function LeaveTracker() {
       .select()
 
     if (error) {
-      alert('Error saving entry: ' + error.message)
+      alert('Error saving entry. Please try again.')
       return
     }
 
@@ -336,7 +338,7 @@ function LeaveTracker() {
       .select()
 
     if (error) {
-      alert('Error saving entries: ' + error.message)
+      alert('Error saving entries. Please try again.')
       return
     }
 

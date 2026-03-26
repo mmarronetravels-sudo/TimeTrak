@@ -60,7 +60,7 @@ export default function MyTimecard() {
   const weekLabel = `${formatFull(weekDates[0])} — ${formatFull(weekDates[4])}`;
   const weekStart = toDateStr(weekDates[0]);
 
-  useEffect(() => { loadLeaveTypes(); }, []);
+  useEffect(() => { if (profile) loadLeaveTypes(); }, [profile]);
   useEffect(() => { if (profile) loadTimecard(); }, [profile, weekStart]);
 
   const showNotif = (msg) => {
@@ -69,7 +69,7 @@ export default function MyTimecard() {
   };
 
   const loadLeaveTypes = async () => {
-    const { data } = await supabase.from('leave_types').select('*').order('sort_order');
+    const { data } = await supabase.from('leave_types').select('*').eq('tenant_id', profile.tenant_id).order('sort_order');
     if (data) setLeaveTypes(data);
   };
 

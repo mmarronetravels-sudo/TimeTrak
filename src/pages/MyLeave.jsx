@@ -32,7 +32,7 @@ export default function MyLeave() {
 
   const loadData = async () => {
     if (!profile) return;
-    const { data: lt } = await supabase.from('leave_types').select('*').order('sort_order');
+    const { data: lt } = await supabase.from('leave_types').select('*').eq('tenant_id', profile.tenant_id).order('sort_order');
     if (lt) setLeaveTypes(lt);
     const { data: reqs } = await supabase
       .from('leave_requests')
@@ -90,6 +90,8 @@ export default function MyLeave() {
 
   const submitRequest = async () => {
     if (!form.leave_type_id || !form.start_date || !form.total_hours) return;
+    if (parseFloat(form.total_hours) <= 0) { showNotif('Hours must be greater than zero'); return; }
+    if (form.end_date && form.end_date < form.start_date) { showNotif('End date cannot be before start date'); return; }
 
     const insertData = {
       tenant_id: profile.tenant_id,

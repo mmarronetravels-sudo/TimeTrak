@@ -49,6 +49,7 @@ export default function LeaveReports() {
 
   const loadData = async () => {
     setLoading(true)
+    const tid = currentProfile.tenant_id
     const [
       { data: s  },
       { data: lt },
@@ -57,12 +58,12 @@ export default function LeaveReports() {
       { data: le },
       { data: pp },
     ] = await Promise.all([
-      supabase.from('profiles').select('*').order('full_name'),
-      supabase.from('leave_types').select('*').order('sort_order'),
-      supabase.from('leave_balances').select('*').eq('school_year', selectedYear),
-      supabase.from('leave_policies').select('*').eq('school_year', selectedYear),
-      supabase.from('leave_entries').select('*').eq('school_year', selectedYear).order('start_date'),
-      supabase.from('protected_leave_periods').select('*').order('period_start'),
+      supabase.from('profiles').select('*').eq('tenant_id', tid).order('full_name'),
+      supabase.from('leave_types').select('*').eq('tenant_id', tid).order('sort_order'),
+      supabase.from('leave_balances').select('*').eq('tenant_id', tid).eq('school_year', selectedYear),
+      supabase.from('leave_policies').select('*').eq('tenant_id', tid).eq('school_year', selectedYear),
+      supabase.from('leave_entries').select('*').eq('tenant_id', tid).eq('school_year', selectedYear).order('start_date'),
+      supabase.from('protected_leave_periods').select('*').eq('tenant_id', tid).order('period_start'),
     ])
     if (s)  setStaff(s)
     if (lt) setLeaveTypes(lt)

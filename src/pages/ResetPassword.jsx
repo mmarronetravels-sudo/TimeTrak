@@ -28,9 +28,13 @@ export default function ResetPassword() {
 
   const handleReset = async (e) => {
     e.preventDefault();
+    if (password.length < 8) { setError('Password must be at least 8 characters'); return; }
+    if (!/[A-Z]/.test(password)) { setError('Password must include at least one uppercase letter'); return; }
+    if (!/[a-z]/.test(password)) { setError('Password must include at least one lowercase letter'); return; }
+    if (!/[0-9]/.test(password)) { setError('Password must include at least one number'); return; }
     if (password !== confirm) { setError('Passwords do not match'); return; }
     const { error } = await supabase.auth.updateUser({ password });
-    if (error) { setError(error.message); return; }
+    if (error) { setError('Unable to update password. Please try again or request a new reset link.'); return; }
     setSuccess(true);
     await supabase.auth.signOut();
     setTimeout(() => navigate('/login'), 2000);
@@ -50,7 +54,8 @@ export default function ResetPassword() {
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">New Password</label>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]" required />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#477fc1]" required minLength={8} />
+              <p className="text-xs text-gray-400 mt-1">At least 8 characters with uppercase, lowercase, and a number</p>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Confirm Password</label>

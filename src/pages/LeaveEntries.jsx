@@ -72,29 +72,31 @@ export default function LeaveEntries() {
   const loadData = async () => {
     setLoading(true)
 
+    const tid = profile.tenant_id
+
     const { data: lt } = await supabase
-      .from('leave_types').select('*').order('sort_order')
+      .from('leave_types').select('*').eq('tenant_id', tid).order('sort_order')
     if (lt) setLeaveTypes(lt)
 
     const { data: lb } = await supabase
-      .from('leave_balances').select('*').eq('school_year', schoolYear)
+      .from('leave_balances').select('*').eq('tenant_id', tid).eq('school_year', schoolYear)
     if (lb) setLeaveBalances(lb)
 
     const { data: pp } = await supabase
-      .from('protected_leave_periods').select('*')
+      .from('protected_leave_periods').select('*').eq('tenant_id', tid)
     if (pp) setProtectedPeriods(pp)
 
     const { data: raw, error } = await supabase
       .from('leave_entries').select('*')
+      .eq('tenant_id', tid)
       .order('created_at', { ascending: false })
 
-    if (error) { console.error(error); setLoading(false); return }
+    if (error) { console.error('Failed to load leave entries'); setLoading(false); return }
 
     if (raw?.length > 0) {
       const ids = [...new Set(raw.map(e => e.staff_id))]
-      // Always select('*') — comma columns cause 400 errors
       const { data: staffData } = await supabase
-        .from('profiles').select('*').in('id', ids).eq('is_active', true)
+        .from('profiles').select('*').in('id', ids).eq('tenant_id', tid)
       const map = {}
       staffData?.forEach(s => { map[s.id] = s })
       setEntries(raw.map(e => ({ ...e, staff: map[e.staff_id] || null })))
@@ -156,6 +158,14 @@ export default function LeaveEntries() {
       showNotif('Leave type, start date, and amount are required.', 'error')
       return
     }
+    if (parseFloat(editForm.amount) <= 0) {
+      showNotif('Amount must be greater than zero.', 'error')
+      return
+    }
+    if (editForm.end_date && editForm.end_date < editForm.start_date) {
+      showNotif('End date cannot be before start date.', 'error')
+      return
+    }
     setSaving(true)
 
     const { data, error } = await supabase
@@ -175,7 +185,7 @@ export default function LeaveEntries() {
 
     setSaving(false)
 
-    if (error) { showNotif('Error saving: ' + error.message, 'error'); return }
+    if (error) { showNotif('Error saving entry. Please try again.', 'error'); return }
 
     // Merge back, keeping .staff enrichment
     const updated = { ...data[0], staff: editingEntry.staff }
@@ -200,7 +210,7 @@ export default function LeaveEntries() {
       .from('leave_entries').delete().eq('id', deletingEntry.id)
 
     if (error) {
-      showNotif('Error deleting: ' + error.message, 'error')
+      showNotif('Error deleting entry. Please try again.', 'error')
       setSaving(false)
       setShowDeleteModal(false)
       return
@@ -360,7 +370,7 @@ export default function LeaveEntries() {
     }
     const { data, error } = await supabase.from('leave_entries').insert([entryData]).select()
     setSaving(false)
-    if (error) { showNotif('Error saving: ' + error.message, 'error'); return }
+    if (error) { showNotif('Error saving entry. Please try again.', 'error'); return }
     if (data?.[0]) {
       const enriched = { ...data[0], staff: repeatEntry.staff }
       setEntries(prev => [enriched, ...prev])
@@ -397,7 +407,7 @@ export default function LeaveEntries() {
     }))
     const { data, error } = await supabase.from('leave_entries').insert(inserts).select()
     setSaving(false)
-    if (error) { showNotif('Error saving: ' + error.message, 'error'); return }
+    if (error) { showNotif('Error saving entry. Please try again.', 'error'); return }
     if (data) {
       const enriched = data.map(e => ({ ...e, staff: repeatEntry.staff }))
       setEntries(prev => [...enriched, ...prev])
